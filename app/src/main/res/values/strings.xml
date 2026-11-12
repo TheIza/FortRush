@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">FortRush</string>
+    <string name="start">Iniciar</string>
+    <string name="start_not_available">La partida estará disponible próximamente</string>
+</resources>

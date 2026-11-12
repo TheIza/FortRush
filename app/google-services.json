@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "681424665318",
+    "project_id": "fortrush-9e3ba",
+    "storage_bucket": "fortrush-9e3ba.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:681424665318:android:d91e5e841bccb495be9927",
+        "android_client_info": {
+          "package_name": "org.TheIza.fortrush"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "681424665318-61js54i5tcdjigp35pqpm8v5ifq77hbl.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "org.TheIza.fortrush",
+            "certificate_hash": "bee3e62e070ef884499ba16ac9837c444b6572d8"
+          }
+        },
+        {
+          "client_id": "681424665318-t7p7c7l4fhho05a63c5bhltt2vagus6o.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAD728Qo6n4RhREzPnNLfPW7G90NICgCJM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "681424665318-t7p7c7l4fhho05a63c5bhltt2vagus6o.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
