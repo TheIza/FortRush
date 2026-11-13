@@ -40,7 +40,7 @@ import org.TheIza.fortrush.ui.components.FortRushScreenBackground
 import org.TheIza.fortrush.ui.theme.FortRushTheme
 
 @Composable
-fun ProfileScreen(userName: String, coins: Int = 0, onSignOut: () -> Unit) {
+fun ProfileScreen(userName: String, coins: Int = 0, onChangeNickname: () -> Unit = {}, onSignOut: () -> Unit) {
     Box(Modifier.fillMaxSize()) {
         FortRushScreenBackground(R.drawable.fr_fondo_usuario)
         Column(
@@ -87,7 +87,7 @@ fun ProfileScreen(userName: String, coins: Int = 0, onSignOut: () -> Unit) {
                 }
                 Spacer(Modifier.height(16.dp))
                 Text(
-                    text = userName.ifBlank { "Jugador" },
+                    text = userName,
                     color = Color.White,
                     fontWeight = FontWeight.Black,
                     fontSize = 21.sp,
@@ -108,6 +108,19 @@ fun ProfileScreen(userName: String, coins: Int = 0, onSignOut: () -> Unit) {
                     Text("Cuenta de Google conectada", color = Color(0xFFDFF2DF), fontSize = 12.sp)
                 }
                 Spacer(Modifier.height(20.dp))
+                Text(
+                    text = "Cambiar apodo",
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0x443C4C37))
+                        .border(1.dp, Color(0xFF9B8751), RoundedCornerShape(12.dp))
+                        .clickable(role = Role.Button, onClick = onChangeNickname)
+                        .padding(horizontal = 18.dp, vertical = 11.dp),
+                    color = Color(0xFFFFE3A0),
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp
+                )
+                Spacer(Modifier.height(14.dp))
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()

@@ -91,7 +91,7 @@ fun PlayerRibbon(userName: String, modifier: Modifier = Modifier) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text("TU CASTILLO", color = Gold, fontFamily = FortRushRoundedFont, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.2.sp, maxLines = 1)
             Text(
-                text = userName.ifBlank { "Jugador" },
+                text = userName,
                 color = Color.White,
                 fontFamily = FortRushRoundedFont,
                 fontWeight = FontWeight.Black,

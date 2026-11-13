@@ -1,8 +1,16 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.google.gms.google.services)
 }
+
+val localProperties = Properties()
+val localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) localPropertiesFile.inputStream().use(localProperties::load)
+val apiBaseUrl = localProperties.getProperty("fortRushApiBaseUrl", "http://10.0.2.2:3000").trimEnd('/')
+val escapedApiBaseUrl = apiBaseUrl.replace("\\", "\\\\").replace("\"", "\\\"")
 
 android {
     namespace = "org.TheIza.fortrush"
@@ -17,11 +25,16 @@ android {
         versionCode = 1
         versionName = "1.0"
 
+        buildConfigField("String", "FORT_RUSH_API_BASE_URL", "\"$escapedApiBaseUrl\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
+        debug {
+            manifestPlaceholders["usesCleartextTraffic"] = "true"
+        }
         release {
+            manifestPlaceholders["usesCleartextTraffic"] = "false"
             optimization {
                 enable = true
                 packageScope = setOf("androidx.**", "kotlin.**", "kotlinx.**")
@@ -34,7 +47,9 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
+    sourceSets.getByName("test").resources.srcDir(rootProject.file("shared"))
 }
 
 dependencies {

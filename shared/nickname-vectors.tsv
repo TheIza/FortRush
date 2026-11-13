@@ -1,0 +1,13 @@
+# input<TAB>valid<TAB>normalized-or-error
+Guerrero	true	guerrero
+GUERRERO	true	guerrero
+Niño_7	true	niño_7
+Árbol_9	true	árbol_9
+A_b	true	a_b
+ab	false	NICKNAME_TOO_SHORT
+abcdefghijklmnopq	false	NICKNAME_TOO_LONG
+No espacios	false	NICKNAME_INVALID_CHARACTERS
+niño!	false	NICKNAME_INVALID_CHARACTERS
+玩家123	false	NICKNAME_INVALID_CHARACTERS
+ábc	true	ábc
+😀abc	false	NICKNAME_INVALID_CHARACTERS

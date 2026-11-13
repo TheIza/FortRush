@@ -1,0 +1,21 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /Usuarios/{userId} {
+      allow get: if request.auth != null && request.auth.uid == userId;
+      allow list: if false;
+      // Profile writes are performed only by the authenticated Node API via Admin SDK.
+      allow create, update, delete: if false;
+    }
+
+    match /Apodos/{normalizedNickname} {
+      // Availability is checked by the authenticated API; clients cannot enumerate reservations.
+      allow read, write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
