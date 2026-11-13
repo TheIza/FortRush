@@ -2,12 +2,7 @@ package org.TheIza.fortrush.ui.components
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.layout.Column
-import androidx.compose.material3.Text
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -45,8 +40,7 @@ fun FortRushBottomBar(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .navigationBarsPadding()
-            .height(84.dp),
+            .height(108.dp),
         contentAlignment = Alignment.BottomCenter
     ) {
         // Medieval Stone & Wood Rampart Wall Canvas Background
@@ -142,27 +136,13 @@ fun FortRushBottomBar(
                 drawCircle(color = Color(0xFF90A3B5), center = Offset(px + pillarW / 2f, h - 16.dp.toPx()), radius = 3f)
             }
 
-            // 4. Center Selected Golden Sunburst Glow (If HOME selected)
-            if (selected == MainDestination.HOME) {
-                val archCenterX = cellW * 1.5f
-
-                // Radial Golden Glow (No grey arch box)
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(Color(0xFFFFEA75), Color(0xFFFF9800), Color(0x00FF9800)),
-                        center = Offset(archCenterX, h * 0.42f),
-                        radius = 64.dp.toPx()
-                    ),
-                    center = Offset(archCenterX, h * 0.42f),
-                    radius = 64.dp.toPx()
-                )
-            }
         }
 
         // 3 Interactive Navigation Tabs
         Row(
             modifier = Modifier
                 .fillMaxSize()
+                .navigationBarsPadding()
                 .padding(top = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -221,28 +201,24 @@ private fun NavItem(
             ),
         contentAlignment = Alignment.Center
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth(0.88f)
-                .fillMaxHeight()
-                .clip(RoundedCornerShape(14.dp))
-                .background(if (isSelected) Color(0x443B2412) else Color.Transparent)
-                .padding(top = 2.dp, bottom = 3.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
-        ) {
-            Image(
-                painter = painterResource(iconRes),
-                contentDescription = null,
-                modifier = Modifier.size(if (isSelected) 48.dp else 40.dp)
-            )
-            Text(
-                text = label,
-                color = if (isSelected) Color(0xFFFFDF78) else Color(0xFFF5E9D5),
-                fontSize = 11.sp,
-                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                maxLines = 1
+        if (isSelected) {
+            Box(
+                modifier = Modifier
+                    .size(78.dp)
+                    .background(
+                        brush = Brush.radialGradient(
+                            colors = listOf(Color(0x55FFD46A), Color(0x22FFD46A), Color.Transparent)
+                        ),
+                        shape = CircleShape
+                    )
             )
         }
+        Image(
+            painter = painterResource(iconRes),
+            contentDescription = if (isSelected) "$label, seleccionada" else label,
+            modifier = Modifier
+                .offset(y = if (isSelected) (-4).dp else 0.dp)
+                .size(if (isSelected) 60.dp else 50.dp)
+        )
     }
 }

@@ -47,7 +47,7 @@ fun ProfileScreen(userName: String, coins: Int = 0, onSignOut: () -> Unit) {
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
-                .padding(start = 18.dp, top = 10.dp, end = 18.dp, bottom = 106.dp)
+                .padding(start = 18.dp, top = 10.dp, end = 18.dp, bottom = 120.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
