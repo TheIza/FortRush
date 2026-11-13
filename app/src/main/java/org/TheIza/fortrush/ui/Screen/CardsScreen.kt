@@ -1,50 +1,65 @@
 package org.TheIza.fortrush.ui.Screen
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.material3.Text
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import org.TheIza.fortrush.R
-import org.TheIza.fortrush.ui.components.TopResources
+import org.TheIza.fortrush.ui.components.CoinCounter
+import org.TheIza.fortrush.ui.components.FortRushCardTile
+import org.TheIza.fortrush.ui.components.FortRushPageTitle
+import org.TheIza.fortrush.ui.components.FortRushScreenBackground
+import org.TheIza.fortrush.ui.model.fortRushCardCatalog
+import org.TheIza.fortrush.ui.theme.FortRushTheme
 
 @Composable
-fun CardsScreen(
-    level: Int = 0,
-    exp: Int = 0,
-    maxExp: Int = 100,
-    coins: Int = 0
-) {
-    Column(
-        Modifier.fillMaxSize().padding(top = 42.dp, start = 18.dp, end = 18.dp, bottom = 130.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        TopResources(level = level, exp = exp, maxExp = maxExp, coins = coins, modifier = Modifier.fillMaxWidth())
-        Box(Modifier.padding(top = 18.dp).fillMaxWidth(0.82f).aspectRatio(3.1f), contentAlignment = Alignment.Center) {
-            Image(painterResource(R.drawable.cartel_titulo), null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
-            Text("CARTAS", color = Color.White, fontWeight = FontWeight.Black, fontSize = 30.sp)
-        }
-        Text("COLECCIÓN DE CARTAS", Modifier.padding(vertical = 22.dp), color = Color.White, fontWeight = FontWeight.Black, fontSize = 19.sp)
-        val cards = listOf(R.drawable.carta_espadachines, R.drawable.carta_escuderos, R.drawable.carta_torre_flechas, R.drawable.carta_torre_canon)
-        cards.chunked(2).forEach { row ->
-            Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-                row.forEach { card -> Image(painterResource(card), null, Modifier.size(145.dp)) }
+fun CardsScreen(coins: Int = 0) {
+    Box(Modifier.fillMaxSize()) {
+        FortRushScreenBackground(R.drawable.fr_fondo_cartas)
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .padding(start = 16.dp, top = 10.dp, end = 16.dp, bottom = 112.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                FortRushPageTitle("Cartas", "Colección de unidades y defensas")
+                CoinCounter(coins = coins)
+            }
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(2),
+                state = rememberLazyGridState(),
+                modifier = Modifier.fillMaxWidth().weight(1f).padding(top = 10.dp),
+                contentPadding = PaddingValues(start = 2.dp, top = 4.dp, end = 2.dp, bottom = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(fortRushCardCatalog) { card -> FortRushCardTile(card = card) }
             }
         }
     }
+}
+
+@Preview(showBackground = true, widthDp = 360, heightDp = 800, fontScale = 1.3f)
+@Composable
+private fun CardsScreenPreview() {
+    FortRushTheme { CardsScreen(coins = 7500) }
 }

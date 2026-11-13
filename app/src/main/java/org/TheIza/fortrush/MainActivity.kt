@@ -55,7 +55,7 @@ class MainActivity : ComponentActivity() {
                     onDispose { auth.removeAuthStateListener(listener) }
                 }
                 if (signedIn) FortRushApp(
-                    userName = auth.currentUser?.displayName?.takeIf { it.isNotBlank() } ?: "GUERRERO_99",
+                    userName = auth.currentUser?.displayName?.takeIf { it.isNotBlank() } ?: "Jugador",
                     userId = auth.currentUser?.uid ?: "",
                     onSignOut = {
                         loginStatus = ""
