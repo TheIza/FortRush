@@ -34,22 +34,22 @@ fun CardsScreen(coins: Int = 0) {
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
-                .padding(start = 16.dp, top = 10.dp, end = 16.dp, bottom = 112.dp)
+                .padding(start = 16.dp, top = 10.dp, end = 16.dp, bottom = 106.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                FortRushPageTitle("Cartas", "Colección de unidades y defensas")
+                FortRushPageTitle("Cartas", "Unidades y defensas")
                 CoinCounter(coins = coins)
             }
             LazyVerticalGrid(
                 columns = GridCells.Fixed(2),
                 state = rememberLazyGridState(),
-                modifier = Modifier.fillMaxWidth().weight(1f).padding(top = 10.dp),
-                contentPadding = PaddingValues(start = 2.dp, top = 4.dp, end = 2.dp, bottom = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth().weight(1f).padding(top = 12.dp),
+                contentPadding = PaddingValues(start = 2.dp, top = 2.dp, end = 2.dp, bottom = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(fortRushCardCatalog) { card -> FortRushCardTile(card = card) }

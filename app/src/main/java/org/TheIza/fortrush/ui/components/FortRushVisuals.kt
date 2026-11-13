@@ -28,6 +28,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -42,91 +43,59 @@ import org.TheIza.fortrush.ui.model.CardCatalogItem
 import java.text.NumberFormat
 import java.util.Locale
 
-private val FortRushRoundedFont = FontFamily(
-    Typeface.create("sans-serif-rounded", Typeface.NORMAL)
-)
+private val FortRushRoundedFont = FontFamily(Typeface.create("sans-serif-rounded", Typeface.NORMAL))
+private val Gold = Color(0xFFFFD46A)
 
 @Composable
 fun FortRushScreenBackground(resourceId: Int) {
-    Image(
-        painter = painterResource(resourceId),
-        contentDescription = null,
-        modifier = Modifier.fillMaxSize(),
-        contentScale = ContentScale.Crop
-    )
+    Image(painter = painterResource(resourceId), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
 }
 
 @Composable
 fun CoinCounter(coins: Int, modifier: Modifier = Modifier) {
-    val formatted = remember(coins) {
-        NumberFormat.getIntegerInstance(Locale("es", "ES")).format(coins.coerceAtLeast(0))
-    }
+    val formatted = remember(coins) { NumberFormat.getIntegerInstance(Locale.forLanguageTag("es-ES")).format(coins.coerceAtLeast(0)) }
     Row(
         modifier = modifier
             .defaultMinSize(minHeight = 48.dp)
             .clip(RoundedCornerShape(24.dp))
             .background(Color(0xE8172115))
-            .border(2.dp, Color(0xFFFFD46A), RoundedCornerShape(24.dp))
+            .border(1.5.dp, Gold, RoundedCornerShape(24.dp))
             .semantics { contentDescription = "Monedas: $formatted" }
             .padding(horizontal = 12.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(7.dp)
     ) {
-        Image(
-            painter = painterResource(R.drawable.moneda),
-            contentDescription = null,
-            modifier = Modifier.size(28.dp)
-        )
-        Text(
-            text = formatted,
-            maxLines = 1,
-            softWrap = false,
-            overflow = TextOverflow.Ellipsis,
-            color = Color(0xFFFFF4CE),
-            fontFamily = FortRushRoundedFont,
-            fontWeight = FontWeight.Black,
-            fontSize = 16.sp
-        )
+        Image(painter = painterResource(R.drawable.moneda), contentDescription = null, modifier = Modifier.size(27.dp))
+        Text(formatted, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis, color = Color(0xFFFFF4CE), fontFamily = FortRushRoundedFont, fontWeight = FontWeight.Black, fontSize = 16.sp)
     }
 }
 
 @Composable
 fun PlayerRibbon(userName: String, modifier: Modifier = Modifier) {
-    val displayName = userName.ifBlank { "Jugador" }
     Row(
         modifier = modifier
             .defaultMinSize(minHeight = 64.dp)
             .clip(RoundedCornerShape(18.dp))
-            .background(Brush.verticalGradient(listOf(Color(0xFFB9322B), Color(0xFF791D1B))))
-            .border(2.dp, Color(0xFFE6A04B), RoundedCornerShape(18.dp))
-            .padding(horizontal = 10.dp, vertical = 6.dp),
+            .background(Brush.horizontalGradient(listOf(Color(0xE52D442B), Color(0xE5192B20))))
+            .border(1.5.dp, Color(0xFFB8C982), RoundedCornerShape(18.dp))
+            .padding(horizontal = 11.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Image(
             painter = painterResource(R.drawable.avatar_rey),
             contentDescription = "Avatar de jugador",
-            modifier = Modifier
-                .size(50.dp)
-                .clip(CircleShape)
-                .border(2.dp, Color(0xFFFFD46A), CircleShape),
+            modifier = Modifier.size(48.dp).clip(CircleShape).border(1.5.dp, Gold, CircleShape),
             contentScale = ContentScale.Crop
         )
-        Spacer(Modifier.size(10.dp))
-        Column(Modifier.weight(1f)) {
+        Spacer(Modifier.size(11.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text("TU CASTILLO", color = Gold, fontFamily = FortRushRoundedFont, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.2.sp, maxLines = 1)
             Text(
-                text = "JUGADOR",
-                color = Color(0xFFFFD46A),
-                fontFamily = FortRushRoundedFont,
-                fontWeight = FontWeight.Bold,
-                fontSize = 11.sp,
-                maxLines = 1
-            )
-            Text(
-                text = displayName.uppercase(Locale.getDefault()),
+                text = userName.ifBlank { "Jugador" },
                 color = Color.White,
                 fontFamily = FortRushRoundedFont,
                 fontWeight = FontWeight.Black,
-                fontSize = 17.sp,
+                fontSize = 16.sp,
                 maxLines = 1,
                 softWrap = false,
                 overflow = TextOverflow.Ellipsis
@@ -138,24 +107,8 @@ fun PlayerRibbon(userName: String, modifier: Modifier = Modifier) {
 @Composable
 fun FortRushPageTitle(title: String, subtitle: String, modifier: Modifier = Modifier) {
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text(
-            text = title,
-            color = Color.White,
-            fontFamily = FortRushRoundedFont,
-            fontWeight = FontWeight.Black,
-            fontSize = 25.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-        Text(
-            text = subtitle,
-            color = Color(0xFFE1E8D2),
-            fontFamily = FortRushRoundedFont,
-            fontWeight = FontWeight.SemiBold,
-            fontSize = 14.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
+        Text(title, color = Color.White, fontFamily = FortRushRoundedFont, fontWeight = FontWeight.Black, fontSize = 25.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(subtitle, color = Color(0xFFE1E8D2), fontFamily = FortRushRoundedFont, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -165,25 +118,17 @@ fun FortRushAttackButton(onClick: (() -> Unit)?, modifier: Modifier = Modifier) 
     Box(
         modifier = modifier
             .defaultMinSize(minHeight = 64.dp)
-            .semantics {
-                contentDescription = if (enabled) "Atacar" else "Atacar, emparejamiento todavía no disponible"
-            }
+            .semantics { contentDescription = if (enabled) "Jugar" else "Jugar todavía no disponible; emparejamiento en preparación" }
             .clickable(enabled = enabled, role = Role.Button, onClick = { onClick?.invoke() }),
         contentAlignment = Alignment.Center
     ) {
-        Image(
-            painter = painterResource(R.drawable.fr_boton_atacar),
-            contentDescription = null,
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.FillBounds,
-            alpha = if (enabled) 1f else 0.76f
-        )
+        Image(painter = painterResource(R.drawable.fr_boton_atacar), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds, alpha = if (enabled) 1f else 0.8f)
         Text(
-            text = "¡ATACAR!",
+            text = if (enabled) "JUGAR" else "PRÓXIMAMENTE",
             color = if (enabled) Color(0xFF542807) else Color(0xFF725B40),
             fontFamily = FortRushRoundedFont,
             fontWeight = FontWeight.Black,
-            fontSize = 25.sp,
+            fontSize = if (enabled) 23.sp else 16.sp,
             maxLines = 1,
             softWrap = false,
             overflow = TextOverflow.Ellipsis
@@ -193,62 +138,40 @@ fun FortRushAttackButton(onClick: (() -> Unit)?, modifier: Modifier = Modifier) 
 
 @Composable
 fun FortRushCardTile(card: CardCatalogItem, modifier: Modifier = Modifier) {
+    val fontScale = LocalDensity.current.fontScale
+    val cardAspectRatio = if (fontScale >= 1.2f) 0.56f else 0.62f
     Column(
-        modifier = modifier,
+        modifier = modifier
+            .fillMaxWidth()
+            .aspectRatio(cardAspectRatio)
+            .clip(RoundedCornerShape(20.dp))
+            .background(Brush.verticalGradient(listOf(Color(0xF0213A48), Color(0xF411211B))))
+            .border(1.5.dp, Color(0xFFD5AD57), RoundedCornerShape(20.dp))
+            .semantics { contentDescription = "${card.name}, ${card.category.lowercase()}, ${card.summary}, ${card.coinCost} monedas" }
+            .padding(9.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(3.dp)
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Box(
-            modifier = Modifier.fillMaxWidth().aspectRatio(0.735f),
-            contentAlignment = Alignment.TopCenter
-        ) {
-            Image(
-                painter = painterResource(R.drawable.fr_marco_carta),
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.FillBounds
-            )
-            Image(
-                painter = painterResource(card.imageResource),
-                contentDescription = null,
-                modifier = Modifier
-                    .fillMaxWidth(0.78f)
-                    .fillMaxHeight(0.72f)
-                    .align(Alignment.TopCenter)
-                    .padding(top = 10.dp),
-                contentScale = ContentScale.Fit
-            )
-        }
         Text(
-            text = card.name,
-            color = Color.White,
-            fontFamily = FortRushRoundedFont,
-            fontWeight = FontWeight.Bold,
-            fontSize = 14.sp,
-            maxLines = 1,
-            softWrap = false,
-            overflow = TextOverflow.Ellipsis
+            card.category,
+            modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(Color(0xFF314D55)).padding(horizontal = 9.dp, vertical = 3.dp),
+            color = Color(0xFFFFE29A), fontFamily = FortRushRoundedFont, fontWeight = FontWeight.Black, fontSize = 9.sp, letterSpacing = 1.sp
         )
+        Box(
+            modifier = Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(13.dp)).background(Color(0xFF244C6B)),
+            contentAlignment = Alignment.Center
+        ) {
+            Image(painter = painterResource(card.imageResource), contentDescription = null, modifier = Modifier.fillMaxSize().padding(4.dp), contentScale = ContentScale.Fit)
+        }
+        Text(card.name, color = Color.White, fontFamily = FortRushRoundedFont, fontWeight = FontWeight.Black, fontSize = 13.sp, maxLines = 2, softWrap = true, textAlign = androidx.compose.ui.text.style.TextAlign.Center, overflow = TextOverflow.Ellipsis)
+        Text(card.summary, color = Color(0xFFD1DDCF), fontFamily = FortRushRoundedFont, fontWeight = FontWeight.Medium, fontSize = 10.sp, maxLines = 2, softWrap = true, textAlign = androidx.compose.ui.text.style.TextAlign.Center, overflow = TextOverflow.Ellipsis)
         Row(
-            modifier = Modifier
-                .defaultMinSize(minHeight = 24.dp)
-                .semantics { contentDescription = card.coinCost.toString() + " monedas" },
+            modifier = Modifier.defaultMinSize(minHeight = 22.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Image(
-                painter = painterResource(R.drawable.moneda),
-                contentDescription = null,
-                modifier = Modifier.size(19.dp)
-            )
-            Text(
-                text = card.coinCost.toString(),
-                color = Color(0xFFFFE27A),
-                fontFamily = FortRushRoundedFont,
-                fontWeight = FontWeight.Black,
-                fontSize = 15.sp,
-                maxLines = 1
-            )
+            Image(painter = painterResource(R.drawable.moneda), contentDescription = null, modifier = Modifier.size(18.dp))
+            Text(card.coinCost.toString(), color = Color(0xFFFFE27A), fontFamily = FortRushRoundedFont, fontWeight = FontWeight.Black, fontSize = 14.sp, maxLines = 1)
         }
     }
 }

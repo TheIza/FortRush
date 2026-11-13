@@ -1,6 +1,13 @@
 package org.TheIza.fortrush.ui.components
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Text
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -39,7 +46,7 @@ fun FortRushBottomBar(
         modifier = modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .height(94.dp),
+            .height(84.dp),
         contentAlignment = Alignment.BottomCenter
     ) {
         // Medieval Stone & Wood Rampart Wall Canvas Background
@@ -203,7 +210,6 @@ private fun NavItem(
 ) {
     val isSelected = selected == destination
     val interactionSource = remember { MutableInteractionSource() }
-
     Box(
         modifier = modifier
             .fillMaxHeight()
@@ -215,16 +221,28 @@ private fun NavItem(
             ),
         contentAlignment = Alignment.Center
     ) {
-        // Larger Icon Sizing
-        val iconSize = if (isSelected) 84.dp else 68.dp
-        val yOffset = if (isSelected && destination == MainDestination.HOME) (-10).dp else 0.dp
-
-        Image(
-            painter = painterResource(iconRes),
-            contentDescription = label,
+        Column(
             modifier = Modifier
-                .offset(y = yOffset)
-                .size(iconSize)
-        )
+                .fillMaxWidth(0.88f)
+                .fillMaxHeight()
+                .clip(RoundedCornerShape(14.dp))
+                .background(if (isSelected) Color(0x443B2412) else Color.Transparent)
+                .padding(top = 2.dp, bottom = 3.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
+        ) {
+            Image(
+                painter = painterResource(iconRes),
+                contentDescription = null,
+                modifier = Modifier.size(if (isSelected) 48.dp else 40.dp)
+            )
+            Text(
+                text = label,
+                color = if (isSelected) Color(0xFFFFDF78) else Color(0xFFF5E9D5),
+                fontSize = 11.sp,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                maxLines = 1
+            )
+        }
     }
 }

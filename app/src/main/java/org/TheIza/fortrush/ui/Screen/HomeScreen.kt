@@ -12,13 +12,18 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import org.TheIza.fortrush.R
 import org.TheIza.fortrush.ui.components.CoinCounter
 import org.TheIza.fortrush.ui.components.FortRushAttackButton
@@ -40,25 +45,46 @@ fun HomeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
-                .padding(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 112.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+                .padding(start = 18.dp, top = 8.dp, end = 18.dp, bottom = 108.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 CoinCounter(coins = coins)
                 Spacer(Modifier.weight(1f))
-                SettingsButton(onClick = onSettingsClick, modifier = Modifier.size(52.dp))
+                SettingsButton(onClick = onSettingsClick, modifier = Modifier.size(50.dp))
             }
+            Spacer(Modifier.height(10.dp))
             PlayerRibbon(userName = userName, modifier = Modifier.fillMaxWidth())
+            Spacer(Modifier.height(6.dp))
             Image(
                 painter = painterResource(R.drawable.escena_inicio),
-                contentDescription = "Castillo de FortRush",
-                modifier = Modifier.fillMaxWidth().weight(1f).padding(vertical = 4.dp),
+                contentDescription = "Castillo de FortRush, rodeado de bosque y un camino de entrada",
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .padding(vertical = 4.dp),
                 contentScale = ContentScale.Fit
+            )
+            Text(
+                text = "PREPARA TU REINO",
+                color = Color(0xFFFFE5A0),
+                fontWeight = FontWeight.Black,
+                fontSize = 14.sp,
+                letterSpacing = 2.sp
+            )
+            Text(
+                text = "Reúne tus cartas y defiende el castillo.",
+                color = Color(0xFFE9F0DD),
+                fontSize = 13.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 2.dp, bottom = 8.dp)
             )
             FortRushAttackButton(
                 onClick = onAttackClick,
-                modifier = Modifier.fillMaxWidth(0.9f).height(82.dp)
+                modifier = Modifier.fillMaxWidth().height(70.dp)
             )
         }
     }
