@@ -24,12 +24,17 @@ import org.TheIza.fortrush.R
 import org.TheIza.fortrush.ui.components.TopResources
 
 @Composable
-fun CardsScreen() {
+fun CardsScreen(
+    level: Int = 0,
+    exp: Int = 0,
+    maxExp: Int = 100,
+    coins: Int = 0
+) {
     Column(
         Modifier.fillMaxSize().padding(top = 42.dp, start = 18.dp, end = 18.dp, bottom = 130.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        TopResources(Modifier.fillMaxWidth())
+        TopResources(level = level, exp = exp, maxExp = maxExp, coins = coins, modifier = Modifier.fillMaxWidth())
         Box(Modifier.padding(top = 18.dp).fillMaxWidth(0.82f).aspectRatio(3.1f), contentAlignment = Alignment.Center) {
             Image(painterResource(R.drawable.cartel_titulo), null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
             Text("CARTAS", color = Color.White, fontWeight = FontWeight.Black, fontSize = 30.sp)

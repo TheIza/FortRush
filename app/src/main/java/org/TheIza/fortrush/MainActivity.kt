@@ -56,6 +56,7 @@ class MainActivity : ComponentActivity() {
                 }
                 if (signedIn) FortRushApp(
                     userName = auth.currentUser?.displayName?.takeIf { it.isNotBlank() } ?: "GUERRERO_99",
+                    userId = auth.currentUser?.uid ?: "",
                     onSignOut = {
                         loginStatus = ""
                         auth.signOut()
@@ -105,7 +106,7 @@ class MainActivity : ComponentActivity() {
                     loginStatus = getString(R.string.login_error_user)
                     return@addOnSuccessListener
                 }
-                val userData = mapOf(
+                val userData = mapOf<String, Any>(
                     "id" to user.uid,
                     "gmail" to (user.email ?: ""),
                     "nombreUsuario" to (user.displayName ?: "")
@@ -114,7 +115,17 @@ class MainActivity : ComponentActivity() {
                 userDocument.get()
                     .continueWithTask { task ->
                         val data = userData.toMutableMap()
-                        if (!task.result.exists()) data["apodo"] = ""
+                        val snapshot = task.result
+                        if (snapshot == null || !snapshot.exists()) {
+                            data["apodo"] = ""
+                            data["monedas"] = 0
+                            data["experiencia"] = 0
+                            data["nivel"] = 0
+                        } else {
+                            if (snapshot.get("monedas") == null) data["monedas"] = 0
+                            if (snapshot.get("experiencia") == null) data["experiencia"] = 0
+                            if (snapshot.get("nivel") == null) data["nivel"] = 0
+                        }
                         userDocument.set(data, SetOptions.merge())
                     }
                     .addOnSuccessListener {
@@ -129,4 +140,3 @@ class MainActivity : ComponentActivity() {
             }
     }
 }
-

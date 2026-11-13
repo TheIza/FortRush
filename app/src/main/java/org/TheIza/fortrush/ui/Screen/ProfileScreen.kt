@@ -26,12 +26,19 @@ import org.TheIza.fortrush.ui.components.NameBanner
 import org.TheIza.fortrush.ui.components.TopResources
 
 @Composable
-fun ProfileScreen(userName: String, onSignOut: () -> Unit) {
+fun ProfileScreen(
+    userName: String,
+    level: Int = 0,
+    exp: Int = 0,
+    maxExp: Int = 100,
+    coins: Int = 0,
+    onSignOut: () -> Unit
+) {
     Column(
         Modifier.fillMaxSize().padding(top = 42.dp, start = 18.dp, end = 18.dp, bottom = 130.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        TopResources(Modifier.fillMaxWidth())
+        TopResources(level = level, exp = exp, maxExp = maxExp, coins = coins, modifier = Modifier.fillMaxWidth())
         NameBanner(userName, Modifier.padding(top = 18.dp).fillMaxWidth(0.92f))
         Row(Modifier.fillMaxWidth().padding(top = 24.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             StatPanel("PARTIDAS\nGANADAS", "0", Modifier.weight(1f))
