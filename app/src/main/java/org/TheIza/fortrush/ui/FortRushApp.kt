@@ -25,9 +25,15 @@ import kotlinx.coroutines.launch
 import java.util.Locale
 import org.TheIza.fortrush.data.nickname.NicknameProfile
 import org.TheIza.fortrush.data.nickname.NicknameRepository
+import org.TheIza.fortrush.data.matchmaking.MatchmakingConnection
+import org.TheIza.fortrush.data.matchmaking.MatchmakingEvent
+import org.TheIza.fortrush.data.matchmaking.MatchmakingRepository
+import org.TheIza.fortrush.data.matchmaking.MatchMap
 import org.TheIza.fortrush.ui.Screen.CardsScreen
 import org.TheIza.fortrush.ui.Screen.HomeScreen
 import org.TheIza.fortrush.ui.Screen.ProfileScreen
+import org.TheIza.fortrush.ui.Screen.MatchmakingScreen
+import org.TheIza.fortrush.ui.Screen.MatchmakingStage
 import org.TheIza.fortrush.ui.components.FortRushBottomBar
 import org.TheIza.fortrush.ui.components.FortRushScreenBackground
 import org.TheIza.fortrush.ui.components.NicknameConnectionErrorDialog
@@ -35,11 +41,12 @@ import org.TheIza.fortrush.ui.components.NicknameDialog
 import org.TheIza.fortrush.ui.theme.FortRushTheme
 import org.TheIza.fortrush.R
 
-enum class MainDestination { CARDS, HOME, PROFILE }
+enum class MainDestination { CARDS, HOME, PROFILE, MATCHMAKING }
 
 @Composable
 fun FortRushApp(userId: String, onSignOut: () -> Unit = {}) {
     val repository = remember { NicknameRepository() }
+    val matchmakingRepository = remember { MatchmakingRepository() }
     var profile by remember(userId) { mutableStateOf<NicknameProfile?>(null) }
     var isLoading by remember(userId) { mutableStateOf(true) }
     var loadError by remember(userId) { mutableStateOf<String?>(null) }
@@ -48,8 +55,80 @@ fun FortRushApp(userId: String, onSignOut: () -> Unit = {}) {
     var destination by rememberSaveable(userId) { mutableStateOf(MainDestination.HOME) }
     var showNicknameDialog by remember { mutableStateOf(false) }
     var showCooldownDialog by remember { mutableStateOf(false) }
+    var matchmakingConnection by remember { mutableStateOf<MatchmakingConnection?>(null) }
+    var matchmakingStage by remember { mutableStateOf(MatchmakingStage.SEARCHING) }
+    var queuePosition by remember { mutableIntStateOf(0) }
+    var opponentNickname by remember { mutableStateOf<String?>(null) }
+    var opponentNumber by remember { mutableIntStateOf(1) }
+    var sharedMap by remember { mutableStateOf<MatchMap?>(null) }
+    var countdown by remember { mutableIntStateOf(0) }
+    var matchmakingError by remember { mutableStateOf<String?>(null) }
+    var cancelWhenConnected by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val currentProfile by rememberUpdatedState(profile)
+
+    fun startMatchmaking() {
+        matchmakingStage = MatchmakingStage.SEARCHING
+        matchmakingError = null
+        cancelWhenConnected = false
+        queuePosition = 0
+        opponentNickname = null
+        sharedMap = null
+        countdown = 0
+        destination = MainDestination.MATCHMAKING
+        matchmakingRepository.connect(
+            onConnected = {
+                matchmakingConnection = it
+                if (cancelWhenConnected) {
+                    cancelWhenConnected = false
+                    it.cancelSearch()
+                }
+            },
+            onEvent = { event ->
+                scope.launch {
+                    when (event) {
+                        is MatchmakingEvent.Waiting -> { matchmakingStage = MatchmakingStage.SEARCHING; queuePosition = event.position }
+                        is MatchmakingEvent.Found -> {
+                            opponentNickname = event.opponentNickname
+                            opponentNumber = event.playerNumber
+                            sharedMap = event.map
+                            matchmakingStage = MatchmakingStage.LOADING_MAP
+                        }
+                        is MatchmakingEvent.Countdown -> { countdown = event.seconds; matchmakingStage = MatchmakingStage.COUNTDOWN }
+                        is MatchmakingEvent.Started -> matchmakingStage = MatchmakingStage.STARTED
+                        MatchmakingEvent.QueueCancelled -> {
+                            matchmakingConnection?.close()
+                            matchmakingConnection = null
+                            destination = MainDestination.HOME
+                        }
+                        is MatchmakingEvent.Cancelled -> {
+                            if (event.requeued) {
+                                matchmakingStage = MatchmakingStage.SEARCHING
+                                queuePosition = 1
+                                opponentNickname = null
+                                sharedMap = null
+                            } else {
+                                matchmakingConnection?.close()
+                                matchmakingConnection = null
+                                destination = MainDestination.HOME
+                            }
+                        }
+                        is MatchmakingEvent.Failure -> {
+                            matchmakingStage = MatchmakingStage.ERROR
+                            matchmakingError = event.message
+                        }
+                    }
+                }
+            }
+        )
+    }
+
+    LaunchedEffect(matchmakingStage, sharedMap) {
+        if (matchmakingStage == MatchmakingStage.LOADING_MAP && sharedMap != null) {
+            // This UI has decoded and drawn the server geometry before acknowledging load.
+            matchmakingConnection?.mapLoaded()
+        }
+    }
 
     LaunchedEffect(userId, refreshKey) {
         isLoading = true
@@ -107,7 +186,7 @@ fun FortRushApp(userId: String, onSignOut: () -> Unit = {}) {
             else -> {
                 when (destination) {
                     MainDestination.CARDS -> CardsScreen(coins = userCoins)
-                    MainDestination.HOME -> HomeScreen(userName = profile!!.nickname!!, coins = userCoins)
+                    MainDestination.HOME -> HomeScreen(userName = profile!!.nickname!!, coins = userCoins, onAttackClick = ::startMatchmaking)
                     MainDestination.PROFILE -> ProfileScreen(
                         userName = profile!!.nickname!!,
                         coins = userCoins,
@@ -125,8 +204,25 @@ fun FortRushApp(userId: String, onSignOut: () -> Unit = {}) {
                         },
                         onSignOut = onSignOut
                     )
+                    MainDestination.MATCHMAKING -> MatchmakingScreen(
+                        nickname = profile!!.nickname!!,
+                        stage = matchmakingStage,
+                        queuePosition = queuePosition,
+                        opponentNickname = opponentNickname,
+                        playerNumber = opponentNumber,
+                        map = sharedMap,
+                        countdown = countdown,
+                        errorMessage = matchmakingError,
+                        onCancel = {
+                            val activeConnection = matchmakingConnection
+                            if (activeConnection == null) cancelWhenConnected = true else activeConnection.cancelSearch()
+                        },
+                        onRetry = { matchmakingConnection?.close(); matchmakingConnection = null; startMatchmaking() }
+                    )
                 }
-                FortRushBottomBar(selected = destination, onSelected = { destination = it }, modifier = Modifier.align(Alignment.BottomCenter))
+                if (destination != MainDestination.MATCHMAKING) {
+                    FortRushBottomBar(selected = destination, onSelected = { destination = it }, modifier = Modifier.align(Alignment.BottomCenter))
+                }
                 if (showNicknameDialog && profile != null) {
                     NicknameDialog(
                         title = "Cambiar apodo",
