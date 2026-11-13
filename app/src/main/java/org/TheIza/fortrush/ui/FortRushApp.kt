@@ -11,6 +11,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -21,6 +22,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.sp
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.launch
+import java.util.Locale
 import org.TheIza.fortrush.data.nickname.NicknameProfile
 import org.TheIza.fortrush.data.nickname.NicknameRepository
 import org.TheIza.fortrush.ui.Screen.CardsScreen
@@ -47,6 +49,7 @@ fun FortRushApp(userId: String, onSignOut: () -> Unit = {}) {
     var showNicknameDialog by remember { mutableStateOf(false) }
     var showCooldownDialog by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val currentProfile by rememberUpdatedState(profile)
 
     LaunchedEffect(userId, refreshKey) {
         isLoading = true
@@ -65,6 +68,14 @@ fun FortRushApp(userId: String, onSignOut: () -> Unit = {}) {
             .addSnapshotListener { snapshot, _ ->
                 if (snapshot != null && snapshot.exists()) {
                     userCoins = snapshot.getLong("monedas")?.toInt() ?: 0
+                    val nickname = snapshot.getString("apodo")?.takeIf(String::isNotBlank)
+                    val current = currentProfile
+                    if (nickname != null && current != null && nickname != current.nickname) {
+                        profile = current.copy(
+                            nickname = nickname,
+                            normalized = snapshot.getString("apodoNormalizado") ?: nickname.lowercase(Locale.ROOT)
+                        )
+                    }
                 }
             }
         onDispose { registration.remove() }
