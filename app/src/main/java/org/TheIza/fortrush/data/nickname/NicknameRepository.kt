@@ -43,8 +43,9 @@ class NicknameRepository(
         return withContext(Dispatchers.IO) {
             val connection = (URL(baseUrl.trimEnd('/') + path).openConnection() as HttpURLConnection).apply {
                 requestMethod = method
-                connectTimeout = 8_000
-                readTimeout = 8_000
+                // Render Free may need about a minute to wake after 15 minutes idle.
+                connectTimeout = 20_000
+                readTimeout = 75_000
                 setRequestProperty("Accept", "application/json")
                 setRequestProperty("Authorization", "Bearer $token")
                 if (body != null) {
@@ -69,7 +70,10 @@ class NicknameRepository(
             } catch (error: NicknameApiException) {
                 throw error
             } catch (error: Exception) {
-                throw IOException("No se pudo conectar con el servidor de FortRush.", error)
+                throw IOException(
+                    "No se pudo conectar con el servidor de FortRush. Si estaba inactivo, puede tardar hasta un minuto en despertar; comprueba tu conexión y pulsa Reintentar.",
+                    error
+                )
             } finally {
                 connection.disconnect()
             }
