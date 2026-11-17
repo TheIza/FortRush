@@ -1,6 +1,6 @@
 # FortRush — Emparejamiento y sala de espera
 
-Estado: prototipo desplegado en Cloudflare. La usuaria confirmó que dos cuentas pueden llegar a la cuenta atrás; la prueba desde redes distintas y la partida de combate siguen pendientes.
+Estado: prototipo de emparejamiento desplegado en Cloudflare. La usuaria confirmó que dos cuentas pueden llegar a la cuenta atrás. El generador curvo descrito abajo está implementado localmente y pendiente de publicar; la prueba desde redes distintas y la partida de combate siguen pendientes.
 
 ## Confirmado por el documento de planificación v0.8
 
@@ -58,3 +58,12 @@ Estado: prototipo desplegado en Cloudflare. La usuaria confirmó que dos cuentas
 - El backend activo es Cloudflare. No se ha demostrado recuperación automática de una conexión WebSocket después de un reinicio o cambio de red.
 - La pantalla muestra que la cuenta atrás terminó, pero el tablero de combate y sus controles siguen pendientes. Esta entrega no simula una partida jugable.
 - Los dos servidores configurados localmente apuntan a Cloudflare. El cambio de URL requiere reconstruir el APK; los cambios solo del Worker no requieren reinstalarlo.
+
+
+## Generación del mapa
+
+- El Worker genera la geometría una sola vez al emparejar y envía el mismo objeto a ambos móviles. Kotlin no vuelve a generar el mapa.
+- La forma usa un camino sinuoso continuo, con simetría de 180 grados para equilibrar los lados, y cuatro huecos de torre por jugador.
+- Se valida que el camino permanezca dentro del tablero, no se cruce ni se acerque a sí mismo de forma incompatible con su ancho, y que los huecos queden fuera del camino.
+- Si no se encuentra una forma válida tras los intentos configurados, se escoge uno de cinco mapas válidos distintos.
+- Es una geometría de prueba para la sala de preparación, no un mapa de combate terminado.

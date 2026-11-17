@@ -1,8 +1,10 @@
 # FortRush — prueba de emparejamiento en Cloudflare
 
-Este Worker es el backend activo de FortRush. Atiende el API de perfiles y apodos y el emparejamiento de prueba por WebSocket, usando un Durable Object para mantener la cola y la preparación de una partida de hasta dos jugadores. Verifica tokens de Firebase Authentication y comparte un mapa de prueba.
+Este Worker es el backend activo de FortRush. Atiende el API de perfiles y apodos y el emparejamiento de prueba por WebSocket, usando un Durable Object para mantener la cola y la preparación de una partida de hasta dos jugadores. Verifica tokens de Firebase Authentication y comparte una geometría aleatoria generada por el Worker, idéntica para ambos jugadores.
 
-Todavía no es el servidor completo del juego: no ejecuta combate ni permite reanudar una partida tras perder la conexión. El mapa aleatorio es una geometría sencilla de prueba, no el generador definitivo acordado.
+El generador curvo descrito aquí ya está implementado localmente, pero todavía no está desplegado: hasta publicar el cambio, el Worker activo seguirá enviando el mapa de prueba anterior.
+
+Todavía no es el servidor completo del juego: no ejecuta combate ni permite reanudar una partida tras perder la conexión. El generador local produce un camino curvo, continuo y simétrico mediante un giro de 180 grados, con cuatro huecos por jugador y la posición de las dos puertas centrada sobre el camino. La app dibuja dos muros de lado a lado con piezas repetidas y solapadas; el Worker envía geometría, no archivos de arte. El generador valida límites, cruces, separación del camino, huecos, muros y decoración; tras 24 intentos, elige entre cinco mapas de respaldo. La lógica de combate sigue pendiente.
 
 ## Configuración local
 
@@ -70,3 +72,8 @@ Pendiente: probar emparejamiento desde dos redes distintas y comprobar desconexi
 - Añadir límites, reconexión, recuperación y pruebas de carga dentro de las cuotas gratis.
 - Implementar reglas de partida y resultado en el servidor.
 - Mantener Firebase Spark y Workers Free; no seleccionar Workers Paid ni recursos de pago.
+
+
+## Pruebas del generador de mapas
+
+La suite verifica que una misma semilla produzca la misma geometría, que semillas distintas generen mapas variados, que los cinco respaldos sean válidos y que el generador rechace coordenadas o huecos incorrectos. Estas son pruebas automáticas locales; no sustituyen la comprobación visual en Android ni la prueba con dos redes.

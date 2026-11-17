@@ -22,7 +22,18 @@ sealed interface MatchmakingEvent {
 }
 
 data class MatchPoint(val x: Float, val y: Float)
-data class MatchMap(val seed: String, val path: List<MatchPoint>, val player1Slots: List<MatchPoint>, val player2Slots: List<MatchPoint>)
+data class MatchDecoration(val kind: String, val point: MatchPoint, val scale: Float)
+data class MatchMap(
+    val seed: String,
+    val path: List<MatchPoint>,
+    val player1Slots: List<MatchPoint>,
+    val player2Slots: List<MatchPoint>,
+    val player1WallGate: MatchPoint,
+    val player2WallGate: MatchPoint,
+    val player1Castle: MatchPoint,
+    val player2Castle: MatchPoint,
+    val decorations: List<MatchDecoration>
+)
 
 private fun JSONObject.points(key: String): List<MatchPoint> {
     val array = optJSONArray(key) ?: return emptyList()
@@ -32,13 +43,43 @@ private fun JSONObject.points(key: String): List<MatchPoint> {
     }.filter { it.x.isFinite() && it.y.isFinite() && it.x in 0f..1f && it.y in 0f..1f }
 }
 
+private fun JSONObject.matchPoint(): MatchPoint? {
+    val x = optDouble("x", Double.NaN).toFloat()
+    val y = optDouble("y", Double.NaN).toFloat()
+    return if (x.isFinite() && y.isFinite() && x in 0f..1f && y in 0f..1f) MatchPoint(x, y) else null
+}
+
+private fun JSONObject.nestedPoint(parent: String, key: String): MatchPoint? =
+    optJSONObject(parent)?.optJSONObject(key)?.matchPoint()
+
 private fun parseMap(json: JSONObject): MatchMap? {
     val path = json.points("path")
     val slots = json.optJSONObject("towerSlots") ?: return null
     val player1 = slots.points("player1")
     val player2 = slots.points("player2")
     if (path.size < 5 || player1.size != 4 || player2.size != 4) return null
-    return MatchMap(json.optString("seed"), path, player1, player2)
+    val decorations = json.optJSONArray("decorations")?.let { array ->
+        (0 until array.length()).mapNotNull { index ->
+            val item = array.optJSONObject(index) ?: return@mapNotNull null
+            val kind = item.optString("kind")
+            if (kind !in setOf("tree", "bush", "rock")) return@mapNotNull null
+            val point = item.matchPoint() ?: return@mapNotNull null
+            val scale = item.optDouble("scale", 1.0).toFloat()
+            if (!scale.isFinite() || scale !in 0.5f..1.5f) return@mapNotNull null
+            MatchDecoration(kind, point, scale)
+        }
+    }.orEmpty()
+    return MatchMap(
+        seed = json.optString("seed"),
+        path = path,
+        player1Slots = player1,
+        player2Slots = player2,
+        player1WallGate = json.nestedPoint("wallGates", "player1") ?: MatchPoint(0.5f, 0.86f),
+        player2WallGate = json.nestedPoint("wallGates", "player2") ?: MatchPoint(0.5f, 0.14f),
+        player1Castle = json.nestedPoint("castlePositions", "player1") ?: MatchPoint(0.5f, 0.90f),
+        player2Castle = json.nestedPoint("castlePositions", "player2") ?: MatchPoint(0.5f, 0.10f),
+        decorations = decorations
+    )
 }
 
 class MatchmakingConnection internal constructor(private val socket: WebSocket) {

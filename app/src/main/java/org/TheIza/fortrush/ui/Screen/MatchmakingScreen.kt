@@ -20,6 +20,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.ContentScale
@@ -124,8 +126,8 @@ private fun SharedMapPreview(map: MatchMap, playerNumber: Int, modifier: Modifie
                 if (index == 0) moveTo(position.x, position.y) else lineTo(position.x, position.y)
             }
         }
-        drawPath(road, Color(0xFF38251C), style = Stroke(width = size.minDimension * 0.19f))
-        drawPath(road, Color(0xFFB9864C), style = Stroke(width = size.minDimension * 0.14f))
+        drawPath(road, Color(0xFF38251C), style = Stroke(width = size.minDimension * 0.19f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+        drawPath(road, Color(0xFFB9864C), style = Stroke(width = size.minDimension * 0.14f, cap = StrokeCap.Round, join = StrokeJoin.Round))
         val slots = if (playerNumber == 2) map.player2Slots else map.player1Slots
         slots.forEach { slot ->
             val center = point(slot.x, slot.y)

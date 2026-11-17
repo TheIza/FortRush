@@ -1,5 +1,6 @@
 package org.TheIza.fortrush.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Text
@@ -29,11 +30,13 @@ import org.TheIza.fortrush.data.matchmaking.MatchmakingConnection
 import org.TheIza.fortrush.data.matchmaking.MatchmakingEvent
 import org.TheIza.fortrush.data.matchmaking.MatchmakingRepository
 import org.TheIza.fortrush.data.matchmaking.MatchMap
+import org.TheIza.fortrush.data.matchmaking.createDebugBotMap
 import org.TheIza.fortrush.ui.Screen.CardsScreen
 import org.TheIza.fortrush.ui.Screen.HomeScreen
 import org.TheIza.fortrush.ui.Screen.ProfileScreen
 import org.TheIza.fortrush.ui.Screen.MatchmakingScreen
 import org.TheIza.fortrush.ui.Screen.MatchmakingStage
+import org.TheIza.fortrush.ui.Screen.BattleArenaScreen
 import org.TheIza.fortrush.ui.components.FortRushBottomBar
 import org.TheIza.fortrush.ui.components.FortRushScreenBackground
 import org.TheIza.fortrush.ui.components.NicknameConnectionErrorDialog
@@ -61,6 +64,7 @@ fun FortRushApp(userId: String, onSignOut: () -> Unit = {}) {
     var opponentNickname by remember { mutableStateOf<String?>(null) }
     var opponentNumber by remember { mutableIntStateOf(1) }
     var sharedMap by remember { mutableStateOf<MatchMap?>(null) }
+    var localBotDebug by rememberSaveable(userId) { mutableStateOf(false) }
     var countdown by remember { mutableIntStateOf(0) }
     var matchmakingError by remember { mutableStateOf<String?>(null) }
     var cancelWhenConnected by remember { mutableStateOf(false) }
@@ -68,6 +72,7 @@ fun FortRushApp(userId: String, onSignOut: () -> Unit = {}) {
     val currentProfile by rememberUpdatedState(profile)
 
     fun startMatchmaking() {
+        localBotDebug = false
         matchmakingStage = MatchmakingStage.SEARCHING
         matchmakingError = null
         cancelWhenConnected = false
@@ -121,6 +126,33 @@ fun FortRushApp(userId: String, onSignOut: () -> Unit = {}) {
                 }
             }
         )
+    }
+
+    fun startDebugBotMatch() {
+        matchmakingConnection?.close()
+        matchmakingConnection = null
+        cancelWhenConnected = false
+        localBotDebug = true
+        matchmakingStage = MatchmakingStage.STARTED
+        queuePosition = 0
+        opponentNickname = "BOT · PRUEBA VISUAL"
+        opponentNumber = 1
+        sharedMap = createDebugBotMap()
+        countdown = 0
+        matchmakingError = null
+        destination = MainDestination.MATCHMAKING
+    }
+
+    fun exitDebugBotMatch() {
+        localBotDebug = false
+        matchmakingStage = MatchmakingStage.SEARCHING
+        sharedMap = null
+        opponentNickname = null
+        destination = MainDestination.HOME
+    }
+
+    BackHandler(enabled = localBotDebug && destination == MainDestination.MATCHMAKING) {
+        exitDebugBotMatch()
     }
 
     LaunchedEffect(matchmakingStage, sharedMap) {
@@ -201,7 +233,12 @@ fun FortRushApp(userId: String, onSignOut: () -> Unit = {}) {
             else -> {
                 when (destination) {
                     MainDestination.CARDS -> CardsScreen(coins = userCoins)
-                    MainDestination.HOME -> HomeScreen(userName = profile!!.nickname!!, coins = userCoins, onAttackClick = ::startMatchmaking)
+                    MainDestination.HOME -> HomeScreen(
+                        userName = profile!!.nickname!!,
+                        coins = userCoins,
+                        onAttackClick = ::startMatchmaking,
+                        onDebugBotClick = ::startDebugBotMatch
+                    )
                     MainDestination.PROFILE -> ProfileScreen(
                         userName = profile!!.nickname!!,
                         coins = userCoins,
@@ -219,21 +256,34 @@ fun FortRushApp(userId: String, onSignOut: () -> Unit = {}) {
                         },
                         onSignOut = onSignOut
                     )
-                    MainDestination.MATCHMAKING -> MatchmakingScreen(
-                        nickname = profile!!.nickname!!,
-                        stage = matchmakingStage,
-                        queuePosition = queuePosition,
-                        opponentNickname = opponentNickname,
-                        playerNumber = opponentNumber,
-                        map = sharedMap,
-                        countdown = countdown,
-                        errorMessage = matchmakingError,
-                        onCancel = {
-                            val activeConnection = matchmakingConnection
-                            if (activeConnection == null) cancelWhenConnected = true else activeConnection.cancelSearch()
-                        },
-                        onRetry = { matchmakingConnection?.close(); matchmakingConnection = null; startMatchmaking() }
-                    )
+                    MainDestination.MATCHMAKING -> {
+                        val arenaMap = sharedMap
+                        if (matchmakingStage == MatchmakingStage.STARTED && arenaMap != null) {
+                            BattleArenaScreen(
+                                map = arenaMap,
+                                playerNumber = opponentNumber,
+                                opponentNickname = opponentNickname.orEmpty(),
+                                isDebugBotMode = localBotDebug,
+                                onExitDebug = if (localBotDebug) ::exitDebugBotMatch else null
+                            )
+                        } else {
+                            MatchmakingScreen(
+                                nickname = profile!!.nickname!!,
+                                stage = matchmakingStage,
+                                queuePosition = queuePosition,
+                                opponentNickname = opponentNickname,
+                                playerNumber = opponentNumber,
+                                map = arenaMap,
+                                countdown = countdown,
+                                errorMessage = matchmakingError,
+                                onCancel = {
+                                    val activeConnection = matchmakingConnection
+                                    if (activeConnection == null) cancelWhenConnected = true else activeConnection.cancelSearch()
+                                },
+                                onRetry = { matchmakingConnection?.close(); matchmakingConnection = null; startMatchmaking() }
+                            )
+                        }
+                    }
                 }
                 if (destination != MainDestination.MATCHMAKING) {
                     FortRushBottomBar(selected = destination, onSelected = { destination = it }, modifier = Modifier.align(Alignment.BottomCenter))

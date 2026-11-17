@@ -1,6 +1,7 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { handleProfileApi, ProfileApiError } from "./profile-api.mjs";
 import { getNicknamePolicyMessage } from "../../src/nickname-policy.mjs";
+import { generateSharedMap } from "./map-generator.mjs";
 
 const FIREBASE_JWKS = createRemoteJWKSet(
   new URL("https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com")
@@ -68,34 +69,6 @@ export default {
     return env.TEST_ROOM.get(roomId).fetch(request);
   }
 };
-
-function randomSeed() {
-  return Array.from(crypto.getRandomValues(new Uint8Array(4)), (byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-function makeProbeMap() {
-  const bytes = crypto.getRandomValues(new Uint8Array(2));
-  const x1 = 0.5 + ((bytes[0] / 255) - 0.5) * 0.18;
-  const x2 = 0.5 + ((bytes[1] / 255) - 0.5) * 0.18;
-  const rotate = ({ x, y }) => ({ x: 1 - x, y: 1 - y });
-  const lower = [
-    { x: 0.5, y: 0.94 },
-    { x: x1, y: 0.78 },
-    { x: x2, y: 0.62 },
-    { x: 0.5, y: 0.5 }
-  ];
-  const player1Slots = [
-    { x: 0.18, y: 0.78 }, { x: 0.82, y: 0.78 },
-    { x: 0.18, y: 0.65 }, { x: 0.82, y: 0.65 }
-  ];
-  return {
-    seed: randomSeed(),
-    width: 1,
-    height: 1,
-    path: [...lower, ...lower.slice(0, -1).reverse().map(rotate)],
-    towerSlots: { player1: player1Slots, player2: player1Slots.map(rotate) }
-  };
-}
 
 function send(socket, type, data = {}) {
   if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type, ...data }));
@@ -205,7 +178,7 @@ export class WebSocketProbe {
       matchId: crypto.randomUUID(),
       phase: "LOADING",
       players: players.map(({ uid, sequence }, index) => ({ uid, sequence, playerNumber: index + 1, loaded: false })),
-      map: makeProbeMap()
+      map: generateSharedMap()
     };
     await this.ctx.storage.put("match", match);
     await this.ctx.storage.put("queue", []);

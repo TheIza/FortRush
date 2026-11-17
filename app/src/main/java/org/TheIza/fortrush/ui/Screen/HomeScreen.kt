@@ -1,6 +1,9 @@
 package org.TheIza.fortrush.ui.Screen
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,13 +15,18 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
@@ -37,6 +45,7 @@ fun HomeScreen(
     userName: String,
     coins: Int = 0,
     onAttackClick: (() -> Unit)? = null,
+    onDebugBotClick: (() -> Unit)? = null,
     onSettingsClick: () -> Unit = {}
 ) {
     Box(Modifier.fillMaxSize()) {
@@ -86,6 +95,33 @@ fun HomeScreen(
                 onClick = onAttackClick,
                 modifier = Modifier.fillMaxWidth().height(70.dp)
             )
+            if (onDebugBotClick != null) {
+                Spacer(Modifier.height(6.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(46.dp)
+                        .clip(RoundedCornerShape(15.dp))
+                        .background(Color(0xE8233540))
+                        .border(1.dp, Color(0xFF89A5A9), RoundedCornerShape(15.dp))
+                        .semantics {
+                            contentDescription = "Probar arena local con bot simulado; no usa emparejamiento ni combate real"
+                        }
+                        .clickable(role = Role.Button, onClick = onDebugBotClick),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "PROBAR ARENA CON BOT",
+                        color = Color(0xFFFFE4A0),
+                        fontWeight = FontWeight.Black,
+                        fontSize = 13.sp,
+                        letterSpacing = 1.sp,
+                        maxLines = 1,
+                        softWrap = false,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
         }
     }
 }

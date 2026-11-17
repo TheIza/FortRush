@@ -30,7 +30,7 @@ The local service does not deploy itself, create a service account, or publish F
 - The server gives map loading 30 seconds. If both clients acknowledge before the deadline, a server-controlled 3, 2, 1 countdown starts. `match.started` marks the transition out of matchmaking.
 - If a player disconnects or fails map loading before the countdown, the remaining connected player returns to the queue at their original sequence position. Manual cancellation after `match.found` is rejected.
 - The local Node server keeps unfinished matches in process memory. The production Cloudflare prototype uses a Durable Object, but reconnecting a dropped WebSocket is not implemented.
-- The current Android `STARTED` screen is a preparation placeholder. The combat arena is a separate pending implementation.
+- Android now shows the first visual `BattleArenaScreen` after `match.started`: it draws the shared route, full-width walls, closed gates, castles, decoration, eight empty tower pads, and the card area. Tower placement, troop movement, damage, wall/castle health, reconnection, and match results are still pending.
 
 ## API
 
