@@ -14,8 +14,10 @@ import androidx.compose.runtime.setValue
 import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
+import androidx.credentials.exceptions.NoCredentialException
 import androidx.lifecycle.lifecycleScope
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.android.libraries.identity.googleid.GoogleIdTokenParsingException
 import com.google.firebase.auth.FirebaseAuth
@@ -66,14 +68,26 @@ class MainActivity : ComponentActivity() {
 
     private fun startGoogleSignIn() {
         loginStatus = getString(R.string.login_in_progress)
+        val serverClientId = getString(R.string.default_web_client_id)
         val googleIdOption = GetGoogleIdOption.Builder()
-            .setServerClientId(getString(R.string.default_web_client_id))
+            .setServerClientId(serverClientId)
             .setFilterByAuthorizedAccounts(false)
             .build()
         val request = GetCredentialRequest.Builder().addCredentialOption(googleIdOption).build()
         lifecycleScope.launch {
             try {
-                val result = CredentialManager.create(this@MainActivity).getCredential(this@MainActivity, request)
+                val credentialManager = CredentialManager.create(this@MainActivity)
+                val result = try {
+                    credentialManager.getCredential(this@MainActivity, request)
+                } catch (_: NoCredentialException) {
+                    // Some devices do not return a credential through the account picker.
+                    // Retry using the explicit Sign in with Google button flow.
+                    val explicitOption = GetSignInWithGoogleOption.Builder(serverClientId).build()
+                    val explicitRequest = GetCredentialRequest.Builder()
+                        .addCredentialOption(explicitOption)
+                        .build()
+                    credentialManager.getCredential(this@MainActivity, explicitRequest)
+                }
                 val credential = result.credential
                 if (credential is CustomCredential && credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
                     val googleCredential = GoogleIdTokenCredential.createFrom(credential.data)
@@ -83,6 +97,8 @@ class MainActivity : ComponentActivity() {
                 }
             } catch (_: GoogleIdTokenParsingException) {
                 loginStatus = getString(R.string.login_error_credential)
+            } catch (_: NoCredentialException) {
+                loginStatus = "No hay una cuenta de Google disponible. Comprueba que haya una cuenta añadida en Ajustes del dispositivo e inténtalo otra vez."
             } catch (exception: Exception) {
                 loginStatus = exception.message ?: getString(R.string.login_cancelled)
             }

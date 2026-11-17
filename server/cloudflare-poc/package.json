@@ -1,0 +1,12 @@
+{
+  "name": "fortrush-cloudflare-poc",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "test": "node --test profile-api.test.mjs"
+  },
+  "dependencies": {
+    "jose": "^6.1.0"
+  }
+}

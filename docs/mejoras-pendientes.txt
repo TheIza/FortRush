@@ -1,0 +1,9 @@
+FortRush — mejoras pendientes
+
+Lista para después. No implementar hasta que la usuaria lo pida.
+
+- Crear una pantalla de carga al abrir la aplicación.
+- Mejorar el diseño visual de la aplicación.
+- Añadir en la sección de cartas una vista previa/tutorial que explique qué hace cada carta en uso.
+
+Cuando la usuaria pregunte de forma general «¿Qué podríamos mejorar?» o una frase equivalente, mencionar esta lista. Si pregunta cómo mejorar algo concreto, responder sobre ese tema sin sacar la lista general, salvo que también la solicite.

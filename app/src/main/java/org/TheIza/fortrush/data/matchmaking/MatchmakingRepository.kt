@@ -68,7 +68,7 @@ class MatchmakingRepository {
                 onEvent(MatchmakingEvent.Failure("No se pudo validar tu sesión."))
                 return@addOnSuccessListener
             }
-            val url = BuildConfig.FORT_RUSH_API_BASE_URL
+            val url = BuildConfig.FORT_RUSH_MATCHMAKING_BASE_URL
                 .replaceFirst("https://", "wss://")
                 .replaceFirst("http://", "ws://")
                 .trimEnd('/') + "/ws"

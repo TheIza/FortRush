@@ -54,8 +54,8 @@ Hallazgo importante (comprobado en noviembre de 2026): **Firebase gratis (plan S
 | Cliente | Kotlin + Jetpack Compose (Canvas) | Dibujar mapa y mano de cartas; enviar comandos |
 | Login | Firebase Auth (anónimo o Google) | Identificar jugadores |
 | Perfil y estadísticas | Firestore | Cartas desbloqueadas, historial, resumen de partidas |
-| Servidor de partida | Node.js + WebSocket (librería ws) | Sala de espera, semilla del mapa, validación, simulación y ganador |
-| Hosting del servidor | Render (plan gratis) | Mantener el servidor online |
+| Servidor de partida | Cloudflare Worker + Durable Object | API de perfiles y prototipo de emparejamiento; el combate aún está pendiente |
+| Servidor Node.js | Uso local de desarrollo | Pruebas y lógica anterior; no es la ruta activa de la app instalada |
 
 **Flujo:** login con Firebase, conexión al servidor con el token, sala de espera, el servidor genera el camino y empieza la partida, los clientes envían comandos ("carta X en hueco Y") y reciben el estado, y al terminar el servidor guarda el resultado en Firestore y avisa del ganador. El servidor es la autoridad: simula a pasos fijos (unos 10 por segundo) y los clientes solo dibujan.
 
@@ -63,9 +63,9 @@ Hallazgo importante (comprobado en noviembre de 2026): **Firebase gratis (plan S
 
 ### Limitaciones a tener en cuenta
 
-- **Render** se duerme tras 15 minutos sin uso y tarda 30-50 segundos en despertar (750 horas/mes gratis, sin tarjeta). Solución: pantalla "Despertando el servidor..." al abrir la app.
+- **Cloudflare** es el alojamiento elegido. Perfil y emparejamiento apuntan al Worker; las pruebas de reconexión, cambio de red y reinicio siguen pendientes.
 - **Cuotas de Firestore en Spark:** unas 20.000 escrituras y 50.000 lecturas al día. Solo se guardan perfiles y resultados, nunca el estado en tiempo real.
-- **Alternativas de hosting:** Fly.io ya no tiene plan gratis para cuentas nuevas y Railway solo da un crédito de prueba. El plan B serio es Cloudflare Workers con Durable Objects (WebSockets y 100.000 peticiones/día gratis, sin dormirse), más difícil de montar y depurar.
+- Las cuotas y condiciones del plan gratuito de Cloudflare deben revisarse antes de ampliar el uso. No activar un plan de pago.
 
 ## 7. Por qué Kotlin + Compose y no Godot
 

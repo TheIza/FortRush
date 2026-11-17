@@ -15,5 +15,9 @@
 local.properties
 
 server/node_modules/
+server/cloudflare-poc/node_modules/
+server/cloudflare-poc/.wrangler/
+server/cloudflare-poc/.dev.vars*
+server/cloudflare-poc/.env*
 server/.env
 server/firestore-debug.log

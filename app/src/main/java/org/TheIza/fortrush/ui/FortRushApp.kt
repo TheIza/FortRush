@@ -134,7 +134,15 @@ fun FortRushApp(userId: String, onSignOut: () -> Unit = {}) {
         isLoading = true
         loadError = null
         try {
-            profile = repository.loadProfile()
+            val loadedProfile = repository.loadProfile()
+            val nicknameFromFirestore = currentProfile?.nickname
+            // A late API response with an empty profile must not overwrite a nickname
+            // already observed in the authenticated user's Firestore document.
+            profile = if (loadedProfile.nickname.isNullOrBlank() && !nicknameFromFirestore.isNullOrBlank()) {
+                currentProfile
+            } else {
+                loadedProfile
+            }
         } catch (error: Exception) {
             loadError = error.message ?: "No se pudo cargar tu perfil."
         } finally {
@@ -149,11 +157,18 @@ fun FortRushApp(userId: String, onSignOut: () -> Unit = {}) {
                     userCoins = snapshot.getLong("monedas")?.toInt() ?: 0
                     val nickname = snapshot.getString("apodo")?.takeIf(String::isNotBlank)
                     val current = currentProfile
-                    if (nickname != null && current != null && nickname != current.nickname) {
-                        profile = current.copy(
+                    if (nickname != null && current?.nickname != nickname) {
+                        profile = current?.copy(
                             nickname = nickname,
                             normalized = snapshot.getString("apodoNormalizado") ?: nickname.lowercase(Locale.ROOT)
+                        ) ?: NicknameProfile(
+                            nickname = nickname,
+                            normalized = snapshot.getString("apodoNormalizado") ?: nickname.lowercase(Locale.ROOT),
+                            lastChangedAt = null,
+                            changeRemainingMs = 0L,
+                            changeAvailableAt = null
                         )
+                        if (current?.nickname.isNullOrBlank()) showNicknameDialog = false
                     }
                 }
             }

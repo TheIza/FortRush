@@ -10,7 +10,9 @@ val localProperties = Properties()
 val localPropertiesFile = rootProject.file("local.properties")
 if (localPropertiesFile.exists()) localPropertiesFile.inputStream().use(localProperties::load)
 val apiBaseUrl = localProperties.getProperty("fortRushApiBaseUrl", "http://10.0.2.2:3000").trimEnd('/')
+val matchmakingBaseUrl = localProperties.getProperty("fortRushMatchmakingBaseUrl", apiBaseUrl).trimEnd('/')
 val escapedApiBaseUrl = apiBaseUrl.replace("\\", "\\\\").replace("\"", "\\\"")
+val escapedMatchmakingBaseUrl = matchmakingBaseUrl.replace("\\", "\\\\").replace("\"", "\\\"")
 
 android {
     namespace = "org.TheIza.fortrush"
@@ -26,6 +28,7 @@ android {
         versionName = "1.0"
 
         buildConfigField("String", "FORT_RUSH_API_BASE_URL", "\"$escapedApiBaseUrl\"")
+        buildConfigField("String", "FORT_RUSH_MATCHMAKING_BASE_URL", "\"$escapedMatchmakingBaseUrl\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

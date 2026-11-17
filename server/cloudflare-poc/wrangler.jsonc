@@ -1,0 +1,24 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "round-king-86b7",
+  "main": "src/index.mjs",
+  "compatibility_date": "2026-11-16",
+  "workers_dev": true,
+  "vars": {
+    "FIREBASE_PROJECT_ID": "fortrush-9e3ba"
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "TEST_ROOM",
+        "class_name": "WebSocketProbe"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["WebSocketProbe"]
+    }
+  ]
+}

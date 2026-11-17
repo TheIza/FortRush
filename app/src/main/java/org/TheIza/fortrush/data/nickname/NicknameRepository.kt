@@ -1,5 +1,6 @@
 package org.TheIza.fortrush.data.nickname
 
+
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -35,15 +36,25 @@ class NicknameRepository(
         return request("GET", "/api/nicknames/availability?nickname=$encoded").optBoolean("available", false)
     }
 
-    suspend fun saveNickname(nickname: String): NicknameProfile =
-        request("PUT", "/api/profile/nickname", JSONObject().put("nickname", nickname)).toProfile()
+    suspend fun saveNickname(nickname: String): NicknameProfile {
+        val saved = request("PUT", "/api/profile/nickname", JSONObject().put("nickname", nickname)).toProfile()
+        if (!saved.nickname.isNullOrBlank()) return saved
+
+        // Some responses can race the Firestore profile update. Read the committed profile
+        // before telling the UI that registration succeeded.
+        val refreshed = loadProfile()
+        if (!refreshed.nickname.isNullOrBlank()) return refreshed
+        throw NicknameApiException(
+            "PROFILE_NOT_CONFIRMED",
+            "El servidor no confirmó el apodo. Revisa tu conexión e inténtalo de nuevo."
+        )
+    }
 
     private suspend fun request(method: String, path: String, body: JSONObject? = null): JSONObject {
         val token = tokenProvider()
         return withContext(Dispatchers.IO) {
             val connection = (URL(baseUrl.trimEnd('/') + path).openConnection() as HttpURLConnection).apply {
                 requestMethod = method
-                // Render Free may need about a minute to wake after 15 minutes idle.
                 connectTimeout = 20_000
                 readTimeout = 75_000
                 setRequestProperty("Accept", "application/json")
