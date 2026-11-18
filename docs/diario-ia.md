@@ -41,3 +41,12 @@ Responder a la revisión visual de la arena: muralla continua de borde a borde, 
 - Desplegar el Worker actualizado para que las partidas online reciban el nuevo generador.
 - Comprobar desde dos móviles que ambos reciben exactamente el mismo mapa.
 - Las pruebas automáticas completas de `npm test` no se ejecutaron en esta sesión.
+### Ajuste de las zonas de construcción y el sprite del muro — 18/11/2026
+
+- Se añadieron franjas no construibles junto a la mitad del mapa y desde cada muro hacia el borde de ese lado. La validación considera el tamaño completo de la plataforma, no solo su centro; los huecos del rival se obtienen por giro de 180°.
+- Se alineó la arena local con bot a las mismas zonas y se sustituyó su ubicación de respaldo para que tampoco coloque plataformas en esas franjas.
+- Al inspeccionar `muro_tramo.png` se encontró una sombra gris semitransparente dibujada bajo los bloques. Se generó `muro_tramo_limpio.png`, conservando las piedras y eliminando esa sombra exterior; la versión original se mantiene.
+- La primera comprobación detectó que dos de las cinco plantillas anteriores ya no cumplían la nueva zona libre. Se sustituyeron por cinco plantillas deterministas que sí pasan la validación completa.
+- `node --check` y la comprobación de 50 semillas pasaron: 50 mapas válidos y distintos, con cuatro espacios por jugador y zonas/simetría correctas; las cinco plantillas de respaldo también pasaron.
+- `:app:assembleDebug --offline --no-daemon` terminó correctamente; se generó `app/build/outputs/apk/debug/app-debug.apk`.
+- Pendiente de validar visualmente la APK en un dispositivo. El Worker actualizado tampoco está desplegado aún.

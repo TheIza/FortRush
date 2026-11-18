@@ -8,6 +8,10 @@ const TOWER_PAD_EDGE_RADIUS = 0.09;
 const MIN_SLOT_PATH_CLEARANCE = ROAD_HALF_WIDTH + TOWER_PAD_RADIUS + 0.012;
 const MIN_SLOT_SEPARATION = TOWER_PAD_RADIUS * 2 + 0.02;
 const WALL_HALF_THICKNESS = 0.0375;
+// Keep the entire platform outside the central and wall-to-edge no-build bands.
+const MIDFIELD_NO_BUILD_HALF_HEIGHT = 0.035;
+const WALL_NO_BUILD_MARGIN = 0.035;
+const TOWER_PAD_HALF_HEIGHT_NORMALIZED = 0.04;
 const MIN_LOCAL_PATH_ARC = 0.34;
 const SAMPLE_STEP = 0.022;
 const MAX_PATH_POINTS = 260;
@@ -25,11 +29,11 @@ const CASTLE_POSITIONS = {
 };
 
 const FALLBACK_SHAPE_SEEDS = [
-  "f0000002",
-  "f0000006",
-  "f0000007",
-  "f0000008",
-  "f0000009"
+  "00000000",
+  "00000002",
+  "00000006",
+  "00000008",
+  "0000000b"
 ];
 const FALLBACK_SHAPES = FALLBACK_SHAPE_SEEDS.map((seed) =>
   randomShape(createSeededRandom(seed))
@@ -68,6 +72,13 @@ function roundedPoint(x, y) {
 
 function rotate180(point) {
   return roundedPoint(1 - point.x, 1 - point.y);
+}
+
+function playerOneSlotZone(gateY) {
+  return {
+    minimumY: 0.5 + MIDFIELD_NO_BUILD_HALF_HEIGHT + TOWER_PAD_HALF_HEIGHT_NORMALIZED,
+    maximumY: gateY - WALL_NO_BUILD_MARGIN - TOWER_PAD_HALF_HEIGHT_NORMALIZED
+  };
 }
 
 function screenDistance(a, b) {
@@ -180,6 +191,8 @@ function makePlayerOneSlots(lowerPath, fullPath, gate, castle, random) {
     cumulative.push(cumulative[index - 1] + screenDistance(route[index - 1], route[index]));
   }
   const totalLength = cumulative[cumulative.length - 1];
+  const allowedY = playerOneSlotZone(gate.y);
+  if (allowedY.maximumY <= allowedY.minimumY) return null;
   const firstDistance = 0.04;
   const lastDistance = totalLength - MIN_SLOT_SEPARATION * 1.5;
   const availableLength = lastDistance - firstDistance;
@@ -198,7 +211,7 @@ function makePlayerOneSlots(lowerPath, fullPath, gate, castle, random) {
       );
       if (
         slot.x < TOWER_PAD_EDGE_RADIUS || slot.x > 1 - TOWER_PAD_EDGE_RADIUS ||
-        slot.y <= 0.5 || slot.y > 0.96 ||
+        slot.y < allowedY.minimumY || slot.y > allowedY.maximumY ||
         distanceToPath(slot, fullPath) < MIN_SLOT_PATH_CLEARANCE ||
         Math.abs(slot.y - gate.y) * MAP_HEIGHT_PER_WIDTH <
           TOWER_PAD_RADIUS + WALL_HALF_THICKNESS + 0.018 ||
@@ -356,16 +369,22 @@ export function isValidSharedMap(map) {
 
   const player1Slots = map.towerSlots?.player1;
   const player2Slots = map.towerSlots?.player2;
+  const gates = map.wallGates;
+  if (!gates?.player1 || !gates?.player2) return false;
+  if (![gates.player1.x, gates.player1.y, gates.player2.x, gates.player2.y].every(Number.isFinite)) return false;
   if (!Array.isArray(player1Slots) || !Array.isArray(player2Slots)) return false;
   if (player1Slots.length !== 4 || player2Slots.length !== 4) return false;
   const allSlots = [...player1Slots, ...player2Slots];
+  const allowedY = playerOneSlotZone(gates.player1.y);
+  if (allowedY.maximumY <= allowedY.minimumY) return false;
 
   for (let index = 0; index < 4; index += 1) {
     const slot1 = player1Slots[index];
     const slot2 = player2Slots[index];
     if (![slot1?.x, slot1?.y, slot2?.x, slot2?.y].every(Number.isFinite)) return false;
     if (screenDistance(slot2, rotate180(slot1)) > 0.00002) return false;
-    if (slot1.y <= 0.5 || slot2.y >= 0.5) return false;
+    if (slot1.y < allowedY.minimumY || slot1.y > allowedY.maximumY) return false;
+    if (slot2.y < 1 - allowedY.maximumY || slot2.y > 1 - allowedY.minimumY) return false;
     for (const slot of [slot1, slot2]) {
       if (slot.x < TOWER_PAD_EDGE_RADIUS || slot.x > 1 - TOWER_PAD_EDGE_RADIUS) return false;
       if (slot.y < 0.04 || slot.y > 0.96) return false;
@@ -383,8 +402,6 @@ export function isValidSharedMap(map) {
     if (screenDistance(path[index], rotate180(path[path.length - index - 1])) > 0.00002) return false;
   }
 
-  const gates = map.wallGates;
-  if (!gates?.player1 || !gates?.player2) return false;
   if (screenDistance(gates.player1, WALL_GATES.player1) > 0.02) return false;
   if (screenDistance(gates.player2, rotate180(gates.player1)) > 0.00002) return false;
   if (distanceToPath(gates.player1, path) > 0.015) return false;
@@ -444,7 +461,7 @@ function randomShape(random) {
 
 export function getFallbackMaps() {
   return FALLBACK_SHAPES.map((shape, index) => {
-    const seed = "f000000" + (index + 1);
+    const seed = FALLBACK_SHAPE_SEEDS[index];
     return makeMap(seed, shape, createSeededRandom(seed));
   });
 }
@@ -462,7 +479,8 @@ export function generateSharedMap(inputSeed = makeRandomSeed(), { maxAttempts = 
   const firstFallback = Math.floor(random() * FALLBACK_SHAPES.length);
   for (let offset = 0; offset < FALLBACK_SHAPES.length; offset += 1) {
     const index = (firstFallback + offset) % FALLBACK_SHAPES.length;
-    const candidate = makeMap(seed, FALLBACK_SHAPES[index], random);
+    const fallbackRandom = createSeededRandom(FALLBACK_SHAPE_SEEDS[index]);
+    const candidate = makeMap(seed, FALLBACK_SHAPES[index], fallbackRandom);
     if (candidate && isValidSharedMap(candidate)) return candidate;
   }
 

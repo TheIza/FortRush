@@ -4,6 +4,10 @@ import java.util.UUID
 import kotlin.random.Random
 
 private const val DEBUG_MAP_HEIGHT_PER_WIDTH = 16f / 9f
+private const val DEBUG_MIDFIELD_NO_BUILD_HALF_HEIGHT = 0.035f
+private const val DEBUG_WALL_NO_BUILD_MARGIN = 0.035f
+private const val DEBUG_TOWER_PAD_HALF_HEIGHT = 0.04f
+private const val DEBUG_MIN_SLOT_SEPARATION = 0.20f
 
 /**
  * Creates a local-only visual fixture for the one-device bot preview.
@@ -61,6 +65,10 @@ private fun makeDebugSlots(
     gateY: Float,
     random: Random
 ): List<MatchPoint> {
+    val minimumY = 0.5f + DEBUG_MIDFIELD_NO_BUILD_HALF_HEIGHT + DEBUG_TOWER_PAD_HALF_HEIGHT
+    val maximumY = gateY - DEBUG_WALL_NO_BUILD_MARGIN - DEBUG_TOWER_PAD_HALF_HEIGHT
+    check(maximumY > minimumY) { "No hay espacio para huecos de torre en este mapa de prueba." }
+
     val route = lowerPath.drop(1)
     val cumulative = mutableListOf(0f)
     for (index in 1 until route.size) {
@@ -84,7 +92,7 @@ private fun makeDebugSlots(
                     0.225f + random.nextFloat() * 0.025f
                 )
                 if (
-                    candidate.x !in 0.09f..0.91f || candidate.y !in 0.52f..0.96f ||
+                    candidate.x !in 0.09f..0.91f || candidate.y !in minimumY..maximumY ||
                     debugDistanceToPath(candidate, fullPath) < 0.19f ||
                     kotlin.math.abs(candidate.y - gateY) * DEBUG_MAP_HEIGHT_PER_WIDTH < 0.146f ||
                     debugDistance(candidate, castle) < 0.25f
@@ -94,43 +102,54 @@ private fun makeDebugSlots(
         }
     }
 
-    if (candidates.size < 4) return fallbackDebugSlots(lowerPath)
-    repeat(100) {
-        val shuffled = candidates.shuffled(random)
-        val slots = mutableListOf<MatchPoint>()
-        for (candidate in shuffled) {
-            if (slots.any { debugDistance(it, candidate) < 0.20f }) continue
-            slots += candidate
-            if (slots.size == 4) break
+    if (candidates.size < 4) return fallbackDebugSlots(gateY, fullPath, minimumY, maximumY)
+
+    val shuffled = candidates.shuffled(random)
+    val selected = mutableListOf<MatchPoint>()
+    var visited = 0
+    fun choose(startIndex: Int): Boolean {
+        if (selected.size == 4) return true
+        if (visited >= 10000) return false
+        val occupied = selected.flatMap { listOf(it, rotateDebugPoint(it)) }
+        for (index in startIndex until shuffled.size) {
+            visited++
+            val candidate = shuffled[index]
+            val pair = listOf(candidate, rotateDebugPoint(candidate))
+            if (debugDistance(pair[0], pair[1]) < DEBUG_MIN_SLOT_SEPARATION) continue
+            if (pair.any { point -> occupied.any { debugDistance(point, it) < DEBUG_MIN_SLOT_SEPARATION } }) continue
+            selected += candidate
+            if (choose(index + 1)) return true
+            selected.removeAt(selected.lastIndex)
+            if (visited >= 10000) return false
         }
-        if (slots.size != 4) return@repeat
-        val allSlots = slots + slots.map(::rotateDebugPoint)
-        val separated = allSlots.indices.all { first ->
-            (first + 1 until allSlots.size).all { second ->
-                debugDistance(allSlots[first], allSlots[second]) >= 0.20f
-            }
-        }
-        if (separated) return slots
+        return false
     }
-    return fallbackDebugSlots(lowerPath)
+    if (choose(0)) return selected.toList()
+    return fallbackDebugSlots(gateY, fullPath, minimumY, maximumY)
 }
 
-private fun fallbackDebugSlots(lowerPath: List<MatchPoint>): List<MatchPoint> =
-    (3..6).mapIndexed { slotIndex, pointIndex ->
-        val previous = lowerPath[pointIndex - 1]
-        val next = lowerPath[pointIndex + 1]
-        val dx = next.x - previous.x
-        val dy = (next.y - previous.y) * DEBUG_MAP_HEIGHT_PER_WIDTH
-        val length = kotlin.math.sqrt(dx * dx + dy * dy).coerceAtLeast(0.0001f)
-        val tangent = MatchPoint(dx / length, dy / length)
-        val preferredSide = if (slotIndex % 2 == 0) 1f else -1f
-        val preferred = debugOffsetPoint(lowerPath[pointIndex], tangent, preferredSide, 0.235f)
-        if (preferred.y > 0.52f && preferred.x in 0.09f..0.91f) {
-            preferred
-        } else {
-            debugOffsetPoint(lowerPath[pointIndex], tangent, -preferredSide, 0.235f)
-        }
-    }
+private fun fallbackDebugSlots(
+    gateY: Float,
+    fullPath: List<MatchPoint>,
+    minimumY: Float,
+    maximumY: Float
+): List<MatchPoint> {
+    val upperRow = minimumY + 0.055f
+    val lowerRow = maximumY - 0.055f
+    val fallback = listOf(
+        MatchPoint(0.105f, upperRow),
+        MatchPoint(0.895f, upperRow),
+        MatchPoint(0.105f, lowerRow),
+        MatchPoint(0.895f, lowerRow)
+    )
+    check(fallback.all { point ->
+        point.y in minimumY..maximumY &&
+            debugDistanceToPath(point, fullPath) >= 0.19f &&
+            kotlin.math.abs(point.y - gateY) * DEBUG_MAP_HEIGHT_PER_WIDTH >= 0.146f &&
+            debugDistance(point, MatchPoint(0.5f, 0.932f)) >= 0.25f
+    }) { "No se pudieron colocar huecos de prueba fuera de las zonas prohibidas." }
+    return fallback
+}
 
 private fun debugPointAtDistance(
     points: List<MatchPoint>,

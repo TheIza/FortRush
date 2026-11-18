@@ -16,6 +16,7 @@ Este documento reúne las decisiones del documento de planificación y las decis
 - El aspecto destruido del muro mostrará la puerta derrumbada y un paso abierto por los restos; no será simplemente una puerta intacta abierta.
 - Las cuatro plataformas de cada jugador se sitúan junto a distintos tramos de su lado del camino; no aparecen en filas horizontales fijas.
 - La disposición de las plataformas es aleatoria para la partida y la del rival es la misma reflejada 180°.
+- Hay zonas prohibidas para construir: una franja central alrededor de la mitad del mapa y una franja que empieza un poco antes de cada muro y continúa hasta el borde inferior/superior correspondiente. Se rechaza cualquier hueco cuyo círculo de construcción invada esas franjas.
 - Los castillos deben ser suficientemente grandes para leerse como las bases principales del mapa, sin quedar pegados a los bordes ni tapar la interfaz.
 - El bosque, las rocas y los arbustos son decoración. No deben tapar el camino, los castillos, los muros ni las plataformas construibles.
 - El mapa se dibuja por capas: césped, decoración de fondo, camino y bordes, castillos, plataformas, muros y puertas, unidades y, por último, interfaz. La muralla queda delante del castillo donde se cruzan.
@@ -27,7 +28,7 @@ Este documento reúne las decisiones del documento de planificación y las decis
 1. El camino contiene puntos finitos dentro de los límites del tablero y tiene continuidad entre puntos.
 2. El camino no se cruza consigo mismo y mantiene espacio suficiente entre curvas para el ancho del camino y sus bordes.
 3. Los dos lados son simétricos mediante giro de 180° y ambos jugadores comparten la misma secuencia de puntos.
-4. Las ocho plataformas se mantienen fuera del camino, separadas entre sí y divididas en cuatro por jugador.
+4. Las ocho plataformas se mantienen fuera del camino y de las zonas prohibidas, separadas entre sí y divididas en cuatro por jugador. Las del segundo jugador son un giro exacto de 180° de las del primero.
 5. Las decoraciones respetan el espacio de seguridad de caminos, plataformas y castillos.
 6. Las puertas quedan centradas sobre el camino; los tramos de muro cubren todo el ancho visible.
 7. El tamaño y la disposición se adaptan a móviles de diferentes proporciones, dejando los controles fuera del área del mapa.
@@ -40,6 +41,7 @@ Este documento reúne las decisiones del documento de planificación y las decis
 - La puerta es una pieza central independiente que conserva el estilo y la escala de la piedra. En estado intacto, el muro continúa por detrás; en estado destruido, se deja libre únicamente el ancho del camino y se muestra el arco con la puerta derrumbada.
 - Los elementos jugables usan las mismas coordenadas normalizadas que envía el servidor. El ancho del muro se extiende al lienzo completo aunque el tablero vertical tenga márgenes laterales.
 - Las plataformas conservan la proporción de su imagen y usan posiciones enviadas por el servidor.
+- La franja central usa una semialtura normalizada de `0.035`; la plataforma conserva un margen de `0.04` por arriba y por abajo. Cerca del muro se deja un margen de `0.035` desde su línea, también ampliado por la mitad de alto de la plataforma. El generador aplica estas reglas antes de aceptar posiciones, y la muestra local con bot sigue las mismas cotas.
 
 ## Estado de esta entrega
 

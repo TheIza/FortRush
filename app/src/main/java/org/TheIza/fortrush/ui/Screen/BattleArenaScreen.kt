@@ -295,7 +295,7 @@ private fun ArenaMapCanvas(
     val rockOne = painterResource(R.drawable.rocas_01)
     val rockTwo = painterResource(R.drawable.rocas_02)
     val pad = painterResource(R.drawable.plataforma_torre)
-    val wallSegment = painterResource(R.drawable.muro_tramo)
+    val wallSegment = painterResource(R.drawable.muro_tramo_limpio)
     val intactGate = painterResource(R.drawable.muro_puerta_intacto_v2)
     val destroyedGate = painterResource(R.drawable.muro_puerta_destruido_v2)
     val blueCastle = painterResource(R.drawable.castillo_azul)
