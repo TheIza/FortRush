@@ -73,6 +73,26 @@ Pendiente: probar emparejamiento desde dos redes distintas y comprobar desconexi
 - Implementar reglas de partida y resultado en el servidor.
 - Mantener Firebase Spark y Workers Free; no seleccionar Workers Paid ni recursos de pago.
 
+## Generador de caminos v2 — paso a
+
+El módulo experimental `src/map-v2.mjs` genera únicamente el camino y todavía no sustituye a `generateSharedMap()` en `src/index.mjs`. Por eso, este cambio no modifica el mapa que reciben los jugadores online ni la simulación.
+
+Para revisar las formas y métricas en el navegador, desde esta carpeta ejecuta:
+
+```powershell
+node debug-map-server.mjs
+```
+
+Abre `http://127.0.0.1:4173/debug-map.html`. El servidor de previsualización escucha solo en el propio dispositivo; no despliega ni contacta Cloudflare. Detenlo con `Ctrl+C`.
+
+La prueba del módulo se ejecuta con:
+
+```powershell
+node --test map-v2.test.mjs
+```
+
+La suite del paso a recorre 1.000 semillas, comprueba validez y determinismo, verifica la simetría y la entrada vertical, y valida las cinco plantillas de respaldo. Los slots, su cobertura y la decoración se añadirán en los pasos siguientes.
+
 
 ## Pruebas del generador de mapas
 

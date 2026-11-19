@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FortRush — debug del mapa v2</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; background: #101811; color: #f4f0df; }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 24px; }
+    header { max-width: 1500px; margin: 0 auto 20px; }
+    h1 { margin: 0 0 6px; font-size: clamp(1.35rem, 3vw, 2rem); }
+    p { max-width: 900px; margin: 0; color: #b9c7b5; line-height: 1.5; }
+    #status { margin-top: 10px; font-size: .9rem; color: #aac59f; }
+    #maps { display: grid; grid-template-columns: repeat(4, minmax(190px, 1fr)); gap: 14px; max-width: 1500px; margin: auto; }
+    .map-card { min-width: 0; overflow: hidden; border: 1px solid #465443; border-radius: 12px; background: #1b261c; }
+    .scene { display: grid; place-items: center; padding: 10px; background: #334e29; }
+    svg { display: block; width: 100%; max-width: 250px; height: auto; border: 1px solid #71805a; border-radius: 6px; background: #75a943; }
+    .details { padding: 11px 12px 13px; }
+    .title-row { display: flex; justify-content: space-between; gap: 8px; align-items: center; margin-bottom: 7px; }
+    .title-row h2 { margin: 0; font-size: 1rem; }
+    .badge { padding: 3px 7px; border-radius: 999px; background: #315c39; color: #dff5da; font-size: .72rem; white-space: nowrap; }
+    .badge.bad { background: #743232; color: #ffe0d9; }
+    dl { display: grid; grid-template-columns: 1fr auto; gap: 3px 10px; margin: 0; font-size: .78rem; color: #b9c7b5; }
+    dt, dd { margin: 0; }
+    dd { color: #f4f0df; font-variant-numeric: tabular-nums; text-align: right; }
+    .slots-note { min-height: 1.2em; margin: 8px 0 0; color: #e0c783; font-size: .75rem; }
+    @media (max-width: 1050px) { #maps { grid-template-columns: repeat(3, minmax(180px, 1fr)); } }
+    @media (max-width: 760px) { body { padding: 14px; } #maps { grid-template-columns: repeat(2, minmax(145px, 1fr)); gap: 9px; } .scene { padding: 6px; } .details { padding: 9px; } }
+    @media (max-width: 390px) { #maps { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>FortRush — generador de caminos v2</h1>
+    <p>Rejilla determinista de 12 semillas. Este paso muestra el camino, sus puertas y las métricas geométricas. Los slots, su cobertura y la decoración se incorporarán en pasos posteriores.</p>
+    <div id="status" role="status" aria-live="polite">Generando mapas…</div>
+  </header>
+  <main id="maps" aria-label="Doce mapas de prueba"></main>
+
+  <script type="module">
+    import { generateMap, inspectPath } from "./src/map-v2.mjs";
+
+    const colors = {
+      "s-suave": "#d9ad69",
+      "doble-s": "#c99d5c",
+      "zigzag-diagonal": "#e2b873",
+      "horquilla-central": "#c99b5d",
+      "gran-c": "#d6a962"
+    };
+    const seeds = Array.from({ length: 12 }, (_, index) => `debug-${String(index + 1).padStart(2, "0")}`);
+    const host = document.querySelector("#maps");
+    const status = document.querySelector("#status");
+    const esc = (value) => String(value).replace(/[&<>"']/g, (character) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    })[character]);
+
+    function svgFor(map, validation) {
+      const { width, height } = map;
+      const path = map.path.points;
+      const line = path.map((point, index) => `${index ? "L" : "M"}${point.x},${point.y}`).join(" ");
+      const road = map.path.width;
+      const wallY = [height * 0.14, height * 0.86];
+      const palette = colors[map.meta.archetype] ?? "#d9ad69";
+      const slots = (map.slots ?? []).map((slot) => {
+        const ownerColor = slot.owner === 2 || slot.owner === "player2" ? "#75b7ff" : "#f58c76";
+        const range = Number.isFinite(slot.range) ? slot.range : 0;
+        const premium = slot.tier === "premium" || slot.tier === 2;
+        return `${range > 0 ? `<circle cx="${slot.x}" cy="${slot.y}" r="${range}" fill="${ownerColor}" fill-opacity=".08" stroke="${ownerColor}" stroke-opacity=".55" stroke-dasharray="18 14" stroke-width="4"/>` : ""}
+          <circle cx="${slot.x}" cy="${slot.y}" r="${road * (premium ? 0.62 : 0.5)}" fill="#c6c5b9" stroke="${ownerColor}" stroke-width="${premium ? 12 : 7}"/>
+          ${premium ? `<circle cx="${slot.x}" cy="${slot.y}" r="${road * 0.38}" fill="none" stroke="#ffe38e" stroke-width="5"/>` : ""}`;
+      }).join("");
+
+      const gateMarkers = wallY.map((y) => `
+        <line x1="0" y1="${y}" x2="${width * 0.5 - road * 0.55}" y2="${y}" stroke="#899193" stroke-width="${road * 0.22}"/>
+        <line x1="${width * 0.5 + road * 0.55}" y1="${y}" x2="${width}" y2="${y}" stroke="#899193" stroke-width="${road * 0.22}"/>
+        <rect x="${width * 0.5 - road * 0.48}" y="${y - road * 0.19}" width="${road * 0.96}" height="${road * 0.38}" rx="8" fill="#a86b35" stroke="#492e1e" stroke-width="7"/>
+      `).join("");
+
+      const metrics = validation.metrics;
+      return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Camino ${esc(map.meta.archetype)} con ${metrics.pointCount} puntos">
+        <defs><pattern id="grass-${esc(map.meta.seed)}" width="70" height="70" patternUnits="userSpaceOnUse"><path d="M8 12l7 9M48 40l8 7M27 60l4-8" stroke="#a2ca62" stroke-width="5" opacity=".55"/></pattern></defs>
+        <rect width="${width}" height="${height}" fill="#72a842"/>
+        <rect width="${width}" height="${height}" fill="url(#grass-${esc(map.meta.seed)})"/>
+        <line x1="0" y1="${height / 2}" x2="${width}" y2="${height / 2}" stroke="#ffffff" stroke-opacity=".18" stroke-dasharray="20 20" stroke-width="4"/>
+        <path d="${line}" fill="none" stroke="#554125" stroke-width="${road + 24}" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="${line}" fill="none" stroke="${palette}" stroke-width="${road}" stroke-linecap="round" stroke-linejoin="round"/>
+        ${gateMarkers}
+        ${slots}
+        <circle cx="${width / 2}" cy="${height * 0.925}" r="${road * 0.34}" fill="#b34c40" stroke="#71342b" stroke-width="8"/>
+        <circle cx="${width / 2}" cy="${height * 0.075}" r="${road * 0.34}" fill="#5485b6" stroke="#294762" stroke-width="8"/>
+      </svg>`;
+    }
+
+    function cardFor(seed) {
+      const map = generateMap(seed);
+      const validation = inspectPath(map.path);
+      const metrics = validation.metrics;
+      const card = document.createElement("article");
+      card.className = "map-card";
+      card.innerHTML = `
+        <div class="scene">${svgFor(map, validation)}</div>
+        <div class="details">
+          <div class="title-row"><h2>${esc(map.meta.archetype)}</h2><span class="badge ${validation.valid ? "" : "bad"}">${validation.valid ? "VÁLIDO" : "REVISAR"}</span></div>
+          <dl>
+            <dt>Semilla</dt><dd>${esc(seed)}</dd>
+            <dt>Puntuación de camino</dt><dd>${map.meta.score}/100</dd>
+            <dt>Longitud</dt><dd>${metrics.totalLength}</dd>
+            <dt>Uso del ancho</dt><dd>${(metrics.widthUsage * 100).toFixed(1)} %</dd>
+            <dt>Curvas amplias</dt><dd>${metrics.curveCount}</dd>
+            <dt>Radio mínimo / requerido</dt><dd>${metrics.minimumRadius ?? "∞"} / ${metrics.requiredRadius}</dd>
+            <dt>Separación mínima / requerida</dt><dd>${metrics.minimumSeparation ?? "∞"} / ${metrics.requiredSeparation}</dd>
+            <dt>Puntos / intentos</dt><dd>${metrics.pointCount} / ${map.meta.attempts}</dd>
+          </dl>
+          <p class="slots-note">${(map.slots ?? []).length ? `${map.slots.length} slots dibujados` : "Slots y alcance: siguiente paso"}${map.meta.usedFallback ? " · plantilla de respaldo" : ""}</p>
+        </div>`;
+      return card;
+    }
+
+    try {
+      for (const seed of seeds) host.append(cardFor(seed));
+      status.textContent = `Listo: ${seeds.length} semillas deterministas. El score de esta fase mide solo el camino.`;
+    } catch (error) {
+      status.textContent = `Error al generar el mapa: ${error.message}`;
+      status.style.color = "#ffaaa2";
+    }
+  </script>
+</body>
+</html>
