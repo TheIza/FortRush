@@ -4,6 +4,14 @@ import java.util.UUID
 import kotlin.random.Random
 
 private const val DEBUG_MAP_HEIGHT_PER_WIDTH = 16f / 9f
+private const val DEBUG_ROAD_HALF_WIDTH = 0.0845f
+private const val DEBUG_TOWER_PAD_RADIUS = 0.09f
+private const val DEBUG_SLOT_TO_ROAD_GAP = 0.012f
+private const val DEBUG_INVISIBLE_ROAD_EXTRA_WIDTH = 0.025f
+private const val DEBUG_MIN_SLOT_PATH_CLEARANCE =
+    DEBUG_ROAD_HALF_WIDTH + DEBUG_TOWER_PAD_RADIUS + DEBUG_SLOT_TO_ROAD_GAP
+private const val DEBUG_MAX_SLOT_PATH_CLEARANCE =
+    DEBUG_ROAD_HALF_WIDTH + DEBUG_TOWER_PAD_RADIUS + DEBUG_INVISIBLE_ROAD_EXTRA_WIDTH
 private const val DEBUG_MIDFIELD_NO_BUILD_HALF_HEIGHT = 0.035f
 private const val DEBUG_WALL_NO_BUILD_MARGIN = 0.035f
 private const val DEBUG_TOWER_PAD_HALF_HEIGHT = 0.04f
@@ -89,11 +97,13 @@ private fun makeDebugSlots(
                     point,
                     tangent,
                     side,
-                    0.225f + random.nextFloat() * 0.025f
+                    DEBUG_MIN_SLOT_PATH_CLEARANCE + random.nextFloat() *
+                        (DEBUG_MAX_SLOT_PATH_CLEARANCE - DEBUG_MIN_SLOT_PATH_CLEARANCE)
                 )
+                val roadDistance = debugDistanceToPath(candidate, fullPath)
                 if (
                     candidate.x !in 0.09f..0.91f || candidate.y !in minimumY..maximumY ||
-                    debugDistanceToPath(candidate, fullPath) < 0.19f ||
+                    roadDistance !in DEBUG_MIN_SLOT_PATH_CLEARANCE..DEBUG_MAX_SLOT_PATH_CLEARANCE ||
                     kotlin.math.abs(candidate.y - gateY) * DEBUG_MAP_HEIGHT_PER_WIDTH < 0.146f ||
                     debugDistance(candidate, castle) < 0.25f
                 ) continue
@@ -102,7 +112,7 @@ private fun makeDebugSlots(
         }
     }
 
-    if (candidates.size < 4) return fallbackDebugSlots(gateY, fullPath, minimumY, maximumY)
+    check(candidates.size >= 4) { "No se pudieron generar cuatro huecos junto al camino de prueba." }
 
     val shuffled = candidates.shuffled(random)
     val selected = mutableListOf<MatchPoint>()
@@ -124,31 +134,8 @@ private fun makeDebugSlots(
         }
         return false
     }
-    if (choose(0)) return selected.toList()
-    return fallbackDebugSlots(gateY, fullPath, minimumY, maximumY)
-}
-
-private fun fallbackDebugSlots(
-    gateY: Float,
-    fullPath: List<MatchPoint>,
-    minimumY: Float,
-    maximumY: Float
-): List<MatchPoint> {
-    val upperRow = minimumY + 0.055f
-    val lowerRow = maximumY - 0.055f
-    val fallback = listOf(
-        MatchPoint(0.105f, upperRow),
-        MatchPoint(0.895f, upperRow),
-        MatchPoint(0.105f, lowerRow),
-        MatchPoint(0.895f, lowerRow)
-    )
-    check(fallback.all { point ->
-        point.y in minimumY..maximumY &&
-            debugDistanceToPath(point, fullPath) >= 0.19f &&
-            kotlin.math.abs(point.y - gateY) * DEBUG_MAP_HEIGHT_PER_WIDTH >= 0.146f &&
-            debugDistance(point, MatchPoint(0.5f, 0.932f)) >= 0.25f
-    }) { "No se pudieron colocar huecos de prueba fuera de las zonas prohibidas." }
-    return fallback
+    check(choose(0)) { "No se pudieron espaciar cuatro huecos que toquen el camino invisible." }
+    return selected.toList()
 }
 
 private fun debugPointAtDistance(

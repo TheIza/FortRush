@@ -5,7 +5,10 @@ const MIN_PATH_CLEARANCE = ROAD_HALF_WIDTH * 2;
 // The 4:3 platform is wider than it is tall, so use its larger screen-space radius.
 const TOWER_PAD_RADIUS = 0.09;
 const TOWER_PAD_EDGE_RADIUS = 0.09;
-const MIN_SLOT_PATH_CLEARANCE = ROAD_HALF_WIDTH + TOWER_PAD_RADIUS + 0.012;
+const SLOT_TO_ROAD_GAP = 0.012;
+const INVISIBLE_ROAD_EXTRA_WIDTH = 0.025;
+const MIN_SLOT_PATH_CLEARANCE = ROAD_HALF_WIDTH + TOWER_PAD_RADIUS + SLOT_TO_ROAD_GAP;
+const MAX_SLOT_PATH_CLEARANCE = ROAD_HALF_WIDTH + TOWER_PAD_RADIUS + INVISIBLE_ROAD_EXTRA_WIDTH;
 const MIN_SLOT_SEPARATION = TOWER_PAD_RADIUS * 2 + 0.02;
 const WALL_HALF_THICKNESS = 0.0375;
 // Keep the entire platform outside the central and wall-to-edge no-build bands.
@@ -33,7 +36,7 @@ const FALLBACK_SHAPE_SEEDS = [
   "00000002",
   "00000006",
   "00000008",
-  "0000000b"
+  "00000017"
 ];
 const FALLBACK_SHAPES = FALLBACK_SHAPE_SEEDS.map((seed) =>
   randomShape(createSeededRandom(seed))
@@ -204,7 +207,8 @@ function makePlayerOneSlots(lowerPath, fullPath, gate, castle, random) {
     const distance = firstDistance + availableLength * index / candidateCount;
     const { point, tangent } = pointAtDistance(route, cumulative, distance);
     for (const side of [-1, 1]) {
-      const offset = MIN_SLOT_PATH_CLEARANCE + 0.008 + random() * 0.018;
+      const offset = MIN_SLOT_PATH_CLEARANCE + random() *
+        (MAX_SLOT_PATH_CLEARANCE - MIN_SLOT_PATH_CLEARANCE);
       const slot = roundedPoint(
         point.x + (-tangent.y) * offset * side,
         point.y + (tangent.x * offset * side) / MAP_HEIGHT_PER_WIDTH
@@ -213,6 +217,7 @@ function makePlayerOneSlots(lowerPath, fullPath, gate, castle, random) {
         slot.x < TOWER_PAD_EDGE_RADIUS || slot.x > 1 - TOWER_PAD_EDGE_RADIUS ||
         slot.y < allowedY.minimumY || slot.y > allowedY.maximumY ||
         distanceToPath(slot, fullPath) < MIN_SLOT_PATH_CLEARANCE ||
+        distanceToPath(slot, fullPath) > MAX_SLOT_PATH_CLEARANCE ||
         Math.abs(slot.y - gate.y) * MAP_HEIGHT_PER_WIDTH <
           TOWER_PAD_RADIUS + WALL_HALF_THICKNESS + 0.018 ||
         screenDistance(slot, castle) < TOWER_PAD_RADIUS + CASTLE_RADIUS + 0.02
@@ -388,7 +393,8 @@ export function isValidSharedMap(map) {
     for (const slot of [slot1, slot2]) {
       if (slot.x < TOWER_PAD_EDGE_RADIUS || slot.x > 1 - TOWER_PAD_EDGE_RADIUS) return false;
       if (slot.y < 0.04 || slot.y > 0.96) return false;
-      if (distanceToPath(slot, path) < MIN_SLOT_PATH_CLEARANCE) return false;
+      const roadDistance = distanceToPath(slot, path);
+      if (roadDistance < MIN_SLOT_PATH_CLEARANCE || roadDistance > MAX_SLOT_PATH_CLEARANCE) return false;
     }
   }
 

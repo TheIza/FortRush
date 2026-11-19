@@ -45,8 +45,17 @@ Responder a la revisión visual de la arena: muralla continua de borde a borde, 
 
 - Se añadieron franjas no construibles junto a la mitad del mapa y desde cada muro hacia el borde de ese lado. La validación considera el tamaño completo de la plataforma, no solo su centro; los huecos del rival se obtienen por giro de 180°.
 - Se alineó la arena local con bot a las mismas zonas y se sustituyó su ubicación de respaldo para que tampoco coloque plataformas en esas franjas.
+- Se añadió un límite superior a la distancia de cada plataforma respecto al camino: ahora debe quedar dentro de la banda invisible ampliada del camino, sin invadir el camino visible. El servidor y la muestra local usan el mismo intervalo.
 - Al inspeccionar `muro_tramo.png` se encontró una sombra gris semitransparente dibujada bajo los bloques. Se generó `muro_tramo_limpio.png`, conservando las piedras y eliminando esa sombra exterior; la versión original se mantiene.
 - La primera comprobación detectó que dos de las cinco plantillas anteriores ya no cumplían la nueva zona libre. Se sustituyeron por cinco plantillas deterministas que sí pasan la validación completa.
 - `node --check` y la comprobación de 50 semillas pasaron: 50 mapas válidos y distintos, con cuatro espacios por jugador y zonas/simetría correctas; las cinco plantillas de respaldo también pasaron.
 - `:app:assembleDebug --offline --no-daemon` terminó correctamente; se generó `app/build/outputs/apk/debug/app-debug.apk`.
 - Pendiente de validar visualmente la APK en un dispositivo. El Worker actualizado tampoco está desplegado aún.
+
+### 19/11/2026 — Proximidad de las plataformas al camino
+
+- Se definió una banda invisible alrededor del camino. Cada plataforma debe conservar una separación de `0.012` respecto al borde visible y su borde debe alcanzar la banda, que añade `0.025` al ancho del camino.
+- La validación rechaza huecos fuera del intervalo de distancia permitido. Se aplica al generador online y a la muestra con bot.
+- `node --test` pasó: 7 de 7 pruebas, incluida una que aleja un hueco del camino para comprobar que se rechaza. Las 200 semillas de variación y los cinco mapas de respaldo siguen siendo válidos.
+- `:app:assembleDebug --offline --no-daemon` compiló correctamente el 19/11/2026.
+- Pendiente: desplegar el Worker para partidas online e instalar la APK para revisar visualmente las plataformas y la muralla.

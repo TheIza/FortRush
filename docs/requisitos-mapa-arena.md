@@ -17,6 +17,7 @@ Este documento reúne las decisiones del documento de planificación y las decis
 - Las cuatro plataformas de cada jugador se sitúan junto a distintos tramos de su lado del camino; no aparecen en filas horizontales fijas.
 - La disposición de las plataformas es aleatoria para la partida y la del rival es la misma reflejada 180°.
 - Hay zonas prohibidas para construir: una franja central alrededor de la mitad del mapa y una franja que empieza un poco antes de cada muro y continúa hasta el borde inferior/superior correspondiente. Se rechaza cualquier hueco cuyo círculo de construcción invada esas franjas.
+- Cada plataforma debe tocar una banda invisible que rodea el camino: se mantiene separada del borde visible del camino, pero no puede quedar más lejos que el ancho de esa banda más el radio de la plataforma.
 - Los castillos deben ser suficientemente grandes para leerse como las bases principales del mapa, sin quedar pegados a los bordes ni tapar la interfaz.
 - El bosque, las rocas y los arbustos son decoración. No deben tapar el camino, los castillos, los muros ni las plataformas construibles.
 - El mapa se dibuja por capas: césped, decoración de fondo, camino y bordes, castillos, plataformas, muros y puertas, unidades y, por último, interfaz. La muralla queda delante del castillo donde se cruzan.
@@ -42,6 +43,7 @@ Este documento reúne las decisiones del documento de planificación y las decis
 - Los elementos jugables usan las mismas coordenadas normalizadas que envía el servidor. El ancho del muro se extiende al lienzo completo aunque el tablero vertical tenga márgenes laterales.
 - Las plataformas conservan la proporción de su imagen y usan posiciones enviadas por el servidor.
 - La franja central usa una semialtura normalizada de `0.035`; la plataforma conserva un margen de `0.04` por arriba y por abajo. Cerca del muro se deja un margen de `0.035` desde su línea, también ampliado por la mitad de alto de la plataforma. El generador aplica estas reglas antes de aceptar posiciones, y la muestra local con bot sigue las mismas cotas.
+- La banda invisible se modela con la semianchura del camino visible (`0.0845`) más `0.025`; la plataforma se aproxima con radio `0.09`. El centro de la plataforma debe quedar entre `0.1865` y `0.1995` unidades de pantalla del camino: conserva al menos `0.012` de separación del camino visible y su borde toca la banda ampliada. El validador rechaza huecos dentro o fuera de ese intervalo.
 
 ## Estado de esta entrega
 
