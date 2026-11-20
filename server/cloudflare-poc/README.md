@@ -81,6 +81,12 @@ El score pondera longitud, cantidad de curvas, apertura lateral, seguridad geom�
 
 El módulo todavía no sustituye a `generateSharedMap()` en `src/index.mjs`. Por eso, este cambio no modifica el mapa que reciben los jugadores online ni la simulación, y todavía no se ha desplegado en Cloudflare.
 
+### Decoración cosmética del cliente — paso d
+
+`MapDecorationGenerator.kt` crea árboles, arbustos, rocas y flores en Android usando una semilla y un stream pseudoaleatorio separado. Su muestreo mantiene separación entre elementos y descarta ubicaciones junto al camino, las plataformas, las murallas y los castillos. Se dibuja como decoración; no participa en las reglas de combate ni en la geometría que valida el servidor.
+
+El generador está aislado para conectarlo al mapa en el paso e. Las pruebas unitarias comprueban que una semilla repita el mismo resultado y que los objetos respeten las zonas libres.
+
 Para revisar las formas y métricas en el navegador, desde esta carpeta ejecuta:
 
 ```powershell
@@ -95,7 +101,7 @@ La prueba del módulo se ejecuta con:
 node --test map-v2.test.mjs
 ```
 
-La suite recorre 1.000 semillas y comprueba determinismo, validez del camino y de los slots, cobertura, simetría, siete huecos por jugador, cinco respaldos válidos y selección de 20 candidatos. La decoración y la integración con Worker y Android siguen pendientes.
+La suite recorre 1.000 semillas y comprueba determinismo, validez del camino y de los slots, cobertura, simetría, siete huecos por jugador, cinco respaldos válidos y selección de 20 candidatos. La integración del generador v2 con Worker y Android sigue pendiente.
 
 
 ## Pruebas del generador de mapas
