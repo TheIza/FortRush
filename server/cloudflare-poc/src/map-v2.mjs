@@ -35,7 +35,6 @@ const DEFAULTS = Object.freeze({
   slotGap: 12,
   invisibleRoadExtra: 25,
   towerRange: 300,
-  premiumSlotsPerPlayer: 2,
   sampleSpacing: 14,
   minimumRadiusFactor: 1.6,
   minimumSegmentSeparationFactor: 1.12,
@@ -84,9 +83,6 @@ function resolvedConfig(config = {}) {
     towerRange: Number.isFinite(config.towerRange) && config.towerRange > 0
       ? config.towerRange
       : DEFAULTS.towerRange * width / DEFAULTS.width,
-    premiumSlotsPerPlayer: Number.isFinite(config.premiumSlotsPerPlayer)
-      ? clamp(Math.floor(config.premiumSlotsPerPlayer), 1, 2)
-      : DEFAULTS.premiumSlotsPerPlayer,
     minimumSlotSeparation: Number.isFinite(config.minimumSlotSeparation) && config.minimumSlotSeparation > 0
       ? config.minimumSlotSeparation
       : (Number.isFinite(config.slotRadius) && config.slotRadius > 0 ? config.slotRadius : DEFAULTS.slotRadius * width / DEFAULTS.width) * 2 + 16,
@@ -595,17 +591,11 @@ function slotsForPlayerOne(path, random, config) {
   }
 
   selected.sort((a, b) => a.along - b.along || a.x - b.x);
-  const premiumIndexes = new Set(selected.map((slot, index) => ({ index, value: slot.value }))
-    .sort((a, b) => b.value - a.value || a.index - b.index)
-    .slice(0, config.premiumSlotsPerPlayer)
-    .map((entry) => entry.index));
-
   return selected.map((slot, index) => ({
     id: `p1-${String(index + 1).padStart(2, "0")}`,
     x: slot.x,
     y: slot.y,
     owner: "player1",
-    tier: premiumIndexes.has(index) ? "premium" : "normal",
     value: slot.value,
     coverage: slot.intervals
   }));
@@ -616,7 +606,6 @@ function mirrorPlayerSlots(playerOneSlots, path, config) {
     id: `p2-${String(index + 1).padStart(2, "0")}`,
     ...rotatedPoint(slot, config),
     owner: "player2",
-    tier: slot.tier,
     value: slot.value,
     coverage: slot.coverage
       .map(([start, end]) => [rounded(path.totalLength - end), rounded(path.totalLength - start)])
@@ -651,7 +640,6 @@ export function inspectSlots(slots, path, configInput = {}) {
       issues.push(`slot ${slot.id} sin cobertura`);
       continue;
     }
-    if (!['normal', 'premium'].includes(slot.tier)) issues.push(`slot ${slot.id} con tier inválido`);
     if (slot.owner !== 'player1' && slot.owner !== 'player2') issues.push(`slot ${slot.id} sin propietario válido`);
     if (slot.owner && !isValidSlotPoint(slot, slot.owner, path, config)) {
       issues.push(`slot ${slot.id} está fuera de una zona de construcción válida`);
@@ -676,7 +664,7 @@ export function inspectSlots(slots, path, configInput = {}) {
     const first = playerOne[index];
     const second = playerTwo[index];
     const mirrored = rotatedPoint(first, config);
-    if (distance(second, mirrored) > 0.002 || first.value !== second.value || first.tier !== second.tier) {
+    if (distance(second, mirrored) > 0.002 || first.value !== second.value) {
       issues.push(`slot ${first.id} y su reflejo no coinciden`);
     }
     const mirroredCoverage = first.coverage
@@ -695,16 +683,11 @@ export function inspectSlots(slots, path, configInput = {}) {
     }
   }
 
-  const premiumCounts = ["player1", "player2"].map((owner) =>
-    slots.filter((slot) => slot.owner === owner && slot.tier === "premium").length
-  );
-  if (premiumCounts.some((count) => count < 1 || count > 2)) issues.push("cada jugador debe tener 1 o 2 slots premium");
   return {
     valid: issues.length === 0,
     issues,
     metrics: {
       countPerPlayer: [playerOne.length, playerTwo.length],
-      premiumPerPlayer: premiumCounts,
       minimumSeparation: slots.length > 1
         ? rounded(Math.min(...slots.flatMap((slot, index) => slots.slice(index + 1).map((other) => distance(slot, other)))))
         : null

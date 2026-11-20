@@ -28,7 +28,6 @@ data class MatchTowerSlot(
     val id: String,
     val ownerPlayerNumber: Int,
     val slotIndex: Int,
-    val tier: String,
     val value: Float,
     val coverage: List<MatchCoverageRange>
 )
@@ -100,8 +99,6 @@ private fun parseV2Map(json: JSONObject, pathObject: JSONObject): MatchMap? {
             "player2" -> 2
             else -> return null
         }
-        val tier = item.optString("tier")
-        if (tier != "normal" && tier != "premium") return null
         val point = item.worldPoint(width, height) ?: return null
         val value = item.optDouble("value", Double.NaN).toFloat()
         if (!value.isFinite() || value <= 0f) return null
@@ -117,7 +114,7 @@ private fun parseV2Map(json: JSONObject, pathObject: JSONObject): MatchMap? {
         if (coverage.isEmpty()) return null
         val slotIndex = slotCounters[owner - 1]++
         if (owner == 1) player1 += point else player2 += point
-        slotMetadata += MatchTowerSlot(id, owner, slotIndex, tier, value, coverage)
+        slotMetadata += MatchTowerSlot(id, owner, slotIndex, value, coverage)
     }
     if (player1.isEmpty() || player1.size != player2.size) return null
 

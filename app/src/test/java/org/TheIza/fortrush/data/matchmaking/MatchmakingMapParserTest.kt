@@ -25,7 +25,6 @@ class MatchmakingMapParserTest {
         assertEquals(0.3f, map.towerRangeFraction, 0.0001f)
         assertEquals(listOf(0, 1), map.slotMetadata.filter { it.ownerPlayerNumber == 1 }.map { it.slotIndex })
         assertEquals(listOf(0, 1), map.slotMetadata.filter { it.ownerPlayerNumber == 2 }.map { it.slotIndex })
-        assertEquals("premium", map.slotMetadata.first().tier)
         assertEquals(listOf(MatchCoverageRange(100f, 240f)), map.slotMetadata.first().coverage)
         assertTrue("client-only decoration should be derived", map.decorations.isNotEmpty())
     }
@@ -46,10 +45,10 @@ class MatchmakingMapParserTest {
             .put(point(500, 350))
             .put(point(500, 60))
         val slots = JSONArray()
-            .put(slot("p1-a", "player1", "premium", 200, 1300, 5.5, 100, 240))
-            .put(slot("p1-b", "player1", "normal", 750, 1100, 4.0, 450, 600))
-            .put(slot("p2-a", "player2", "premium", 800, 700, 5.5, 1560, 1700))
-            .put(slot("p2-b", "player2", "normal", 250, 900, 4.0, 1200, 1350))
+            .put(slot("p1-a", "player1", 200, 1300, 5.5, 100, 240))
+            .put(slot("p1-b", "player1", 750, 1100, 4.0, 450, 600))
+            .put(slot("p2-a", "player2", 800, 700, 5.5, 1560, 1700))
+            .put(slot("p2-b", "player2", 250, 900, 4.0, 1200, 1350))
         return JSONObject()
             .put("seed", "parser-seed")
             .put("width", 1000)
@@ -74,7 +73,6 @@ class MatchmakingMapParserTest {
     private fun slot(
         id: String,
         owner: String,
-        tier: String,
         x: Int,
         y: Int,
         value: Double,
@@ -83,7 +81,6 @@ class MatchmakingMapParserTest {
     ) = JSONObject()
         .put("id", id)
         .put("owner", owner)
-        .put("tier", tier)
         .put("x", x)
         .put("y", y)
         .put("value", value)

@@ -66,11 +66,8 @@
       const slotRadius = map.meta.slotRadius;
       const slots = (map.slots ?? []).map((slot) => {
         const ownerColor = slot.owner === 2 || slot.owner === "player2" ? "#75b7ff" : "#f58c76";
-        const premium = slot.tier === "premium" || slot.tier === 2;
-        const radius = slotRadius * (premium ? 1.13 : 1);
-        return `<circle cx="${slot.x}" cy="${slot.y}" r="${radius}" fill="#c6c5b9" stroke="${ownerColor}" stroke-width="${premium ? 10 : 6}"/>
-          <circle cx="${slot.x}" cy="${slot.y}" r="${radius * 0.7}" fill="none" stroke="#77776e" stroke-width="3"/>
-          ${premium ? `<circle cx="${slot.x}" cy="${slot.y}" r="${radius * 1.18}" fill="none" stroke="#ffe38e" stroke-width="5"/>` : ""}
+        return `<circle cx="${slot.x}" cy="${slot.y}" r="${slotRadius}" fill="#c6c5b9" stroke="${ownerColor}" stroke-width="6"/>
+          <circle cx="${slot.x}" cy="${slot.y}" r="${slotRadius * 0.7}" fill="none" stroke="#77776e" stroke-width="3"/>
           <text x="${slot.x}" y="${slot.y + 5}" text-anchor="middle" font-size="14" font-weight="800" fill="${slot.owner === "player2" ? "#173f68" : "#6b3028"}">${slot.owner === "player2" ? "P2" : "P1"}</text>`;
       }).join("");
       const rangeCircles = (map.slots ?? []).map((slot) => {
@@ -122,7 +119,6 @@
             <dt>Radio mínimo / requerido</dt><dd>${metrics.minimumRadius ?? "∞"} / ${metrics.requiredRadius}</dd>
             <dt>Separación mínima / requerida</dt><dd>${metrics.minimumSeparation ?? "∞"} / ${metrics.requiredSeparation}</dd>
             <dt>Huecos P1 / P2</dt><dd>${slotsValidation.metrics?.countPerPlayer.join(" / ") ?? "inválidos"}</dd>
-            <dt>Premium P1 / P2</dt><dd>${slotsValidation.metrics?.premiumPerPlayer.join(" / ") ?? "inválidos"}</dd>
             <dt>Separación entre huecos</dt><dd>${slotsValidation.metrics?.minimumSeparation ?? "∞"}</dd>
             <dt>Equilibrio de valor</dt><dd>${map.meta.scoreBreakdown?.ownerValueDifferencePercent ?? "?"} %</dd>
             <dt>Varianza / CV del valor</dt><dd>${map.meta.scoreBreakdown?.slotValueVariance ?? "?"} / ${map.meta.scoreBreakdown?.slotValueCoefficientOfVariation ?? "?"}</dd>

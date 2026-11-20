@@ -61,7 +61,6 @@ test("1.000 semillas producen caminos válidos y siete slots equilibrados por ju
     assert.equal(slotValidation.valid, true, `${map.meta.seed}: ${slotValidation.issues.join(", ")}`);
     assert.equal(map.slots.length, 14);
     assert.deepEqual(slotValidation.metrics.countPerPlayer, [7, 7]);
-    assert.ok(slotValidation.metrics.premiumPerPlayer.every((count) => count >= 1 && count <= 2));
     assert.ok(map.path.totalLength >= 1800 * 1.25);
     assert.ok(map.path.totalLength <= 1800 * 3.0);
     assert.ok(pathValidation.metrics.widthUsage >= 0.70);
@@ -143,7 +142,7 @@ test("si se agotan los intentos, el respaldo completo es determinista", () => {
 });
 
 test("el número de huecos se puede configurar", () => {
-  const map = generateMap("four-slots", { slotsPerPlayer: 4, premiumSlotsPerPlayer: 1 });
+  const map = generateMap("four-slots", { slotsPerPlayer: 4 });
   assert.equal(map.slots.length, 8);
-  assert.deepEqual(inspectSlots(map.slots, map.path, { slotsPerPlayer: 4, premiumSlotsPerPlayer: 1 }).metrics.countPerPlayer, [4, 4]);
+  assert.deepEqual(inspectSlots(map.slots, map.path, { slotsPerPlayer: 4 }).metrics.countPerPlayer, [4, 4]);
 });

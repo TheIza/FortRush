@@ -67,8 +67,7 @@ private data class ArenaSlotVisual(
     val ownerPlayerNumber: Int,
     val slotIndex: Int,
     val point: MatchPoint,
-    val id: String,
-    val tier: String
+    val id: String
 )
 
 /**
@@ -326,11 +325,11 @@ private fun ArenaMapCanvas(
     val slotVisuals = buildList {
         map.player1Slots.forEachIndexed { index, point ->
             val metadata = map.slotMetadata.firstOrNull { it.ownerPlayerNumber == 1 && it.slotIndex == index }
-            add(ArenaSlotVisual(1, index, point, metadata?.id ?: "player1-$index", metadata?.tier ?: "normal"))
+            add(ArenaSlotVisual(1, index, point, metadata?.id ?: "player1-$index"))
         }
         map.player2Slots.forEachIndexed { index, point ->
             val metadata = map.slotMetadata.firstOrNull { it.ownerPlayerNumber == 2 && it.slotIndex == index }
-            add(ArenaSlotVisual(2, index, point, metadata?.id ?: "player2-$index", metadata?.tier ?: "normal"))
+            add(ArenaSlotVisual(2, index, point, metadata?.id ?: "player2-$index"))
         }
     }
 
@@ -442,18 +441,15 @@ private fun ArenaMapCanvas(
 
         slotVisuals.forEach { slot ->
             val center = oriented(slot.point)
-            val premium = slot.tier == "premium"
             val ownerColor = if (slot.ownerPlayerNumber == 1) Color(0xFF59A3FF) else Color(0xFFF47766)
-            val padWidth = boardWidth * map.slotDiameterFraction * if (premium) 1.14f else 1f
+            val padWidth = boardWidth * map.slotDiameterFraction
             if (slot.id == selectedSlotId && map.towerRangeFraction > 0f) {
                 val rangeRadius = boardWidth * map.towerRangeFraction
                 drawCircle(ownerColor.copy(alpha = 0.10f), rangeRadius, center)
                 drawCircle(ownerColor.copy(alpha = 0.88f), rangeRadius, center, style = Stroke(width = 2.dp.toPx()))
             }
-            if (premium) drawCircle(Color(0x44FFE38E), padWidth * 0.68f, center)
             drawCenteredPainter(pad, center, padWidth, padWidth / painterAspect(pad))
             drawCircle(ownerColor, padWidth * 0.53f, center, style = Stroke(width = 2.5.dp.toPx()))
-            if (premium) drawCircle(Color(0xFFFFE38E), padWidth * 0.68f, center, style = Stroke(width = 2.dp.toPx()))
         }
 
         // Castles sit behind their wall so the masonry reads as one continuous barrier.

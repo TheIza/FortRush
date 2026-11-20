@@ -77,7 +77,7 @@ Pendiente: probar emparejamiento desde dos redes distintas y comprobar desconexi
 
 El módulo experimental `src/map-v2.mjs` ofrece la API determinista `generateMap(seed, config)`. Devuelve dimensiones lógicas, camino con longitudes acumuladas, slots de ambos jugadores, cobertura de torre y métricas. El arquetipo se elige a partir de la semilla y el módulo evalúa 20 variantes válidas para quedarse con la de mejor puntuación. El camino y los slots del rival son simétricos al rotar 180 grados; la diferencia de valor entre los lados es 0 %.
 
-El score pondera longitud, cantidad de curvas, apertura lateral, seguridad geométrica, cobertura, equilibrio y dispersión de valor entre plataformas. Los 7 slots de cada jugador incluyen 2 premium, el valor y los intervalos de camino que quedan dentro del alcance de torre.
+El score pondera longitud, cantidad de curvas, apertura lateral, seguridad geométrica, cobertura, equilibrio y dispersión de valor entre plataformas. Cada jugador tiene 7 slots normales; cada uno incluye su valor geométrico y los intervalos de camino dentro del alcance de torre.
 
 El Worker y el lector Android ya están conectados localmente al formato v2. La publicación de Cloudflare sigue pendiente; el Worker en producción no cambia hasta que se haga un despliegue explícito.
 
@@ -105,7 +105,7 @@ La suite recorre 1.000 semillas y comprueba determinismo, validez del camino y d
 
 ### Integración con Worker y Android — paso e
 
-El Durable Object crea el mapa v2 cuando forma la pareja y guarda la geometría completa en la partida. `match.found` la envía para que los móviles preparen la vista y `game_start` vuelve a incluirla cuando empieza la partida. Se conservan las métricas y los intervalos de cobertura; no se envía decoración. Android valida el formato, normaliza las coordenadas, genera la decoración a partir de la semilla y muestra siete plataformas por jugador. Al tocar una plataforma, aparece el alcance de torre; las premium tienen mayor tamaño y borde dorado. La app nueva acepta el evento `match.started` del Worker anterior, cuyo mapa conserva el formato v1.
+El Durable Object crea el mapa v2 cuando forma la pareja y guarda la geometría completa en la partida. `match.found` la envía para que los móviles preparen la vista y `game_start` vuelve a incluirla cuando empieza la partida. Se conservan las métricas y los intervalos de cobertura; no se envía decoración. Android valida el formato, normaliza las coordenadas, genera la decoración a partir de la semilla y muestra siete plataformas iguales por jugador. Al tocar una plataforma, aparece el alcance de torre. El cliente ignora campos desconocidos procedentes de formatos anteriores.
 
 El servidor todavía no simula el combate; esta integración solo cambia el mapa compartido y su representación. `GET /health` informa `mapGeneratorVersion: v2` cuando se despliegue este código. El código local no ha sido desplegado ni enviado con `git push`.
 
