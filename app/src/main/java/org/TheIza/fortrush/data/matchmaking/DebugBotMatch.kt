@@ -112,7 +112,7 @@ private fun makeDebugSlots(
         }
     }
 
-    check(candidates.size >= 4) { "No se pudieron generar cuatro huecos junto al camino de prueba." }
+    if (candidates.size < 4) return fallbackDebugSlots(lowerPath)
 
     val shuffled = candidates.shuffled(random)
     val selected = mutableListOf<MatchPoint>()
@@ -134,8 +134,28 @@ private fun makeDebugSlots(
         }
         return false
     }
-    check(choose(0)) { "No se pudieron espaciar cuatro huecos que toquen el camino invisible." }
+    if (!choose(0)) return fallbackDebugSlots(lowerPath)
     return selected.toList()
+}
+
+/**
+ * Keeps the local preview alive if a randomized path leaves too few sampled positions.
+ * These four positions sit just outside the two horizontal path segments and remain inside
+ * the player's build zone; the other player receives their exact 180-degree mirror.
+ */
+private fun fallbackDebugSlots(lowerPath: List<MatchPoint>): List<MatchPoint> {
+    val firstEnd = lowerPath[4]
+    val secondEnd = lowerPath[5]
+    val thirdRow = lowerPath[6].y - 0.01f
+    val offset = (DEBUG_MIN_SLOT_PATH_CLEARANCE + DEBUG_MAX_SLOT_PATH_CLEARANCE) / 2f
+    val firstOutward = if (firstEnd.x < secondEnd.x) -1f else 1f
+    val secondOutward = -firstOutward
+    return listOf(
+        MatchPoint(firstEnd.x + firstOutward * offset, firstEnd.y),
+        MatchPoint(secondEnd.x + secondOutward * offset, secondEnd.y),
+        MatchPoint(firstEnd.x + firstOutward * offset, thirdRow),
+        MatchPoint(secondEnd.x + secondOutward * offset, thirdRow)
+    )
 }
 
 private fun debugPointAtDistance(

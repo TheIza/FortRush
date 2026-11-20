@@ -59,3 +59,11 @@ Responder a la revisión visual de la arena: muralla continua de borde a borde, 
 - `node --test` pasó: 7 de 7 pruebas, incluida una que aleja un hueco del camino para comprobar que se rechaza. Las 200 semillas de variación y los cinco mapas de respaldo siguen siendo válidos.
 - `:app:assembleDebug --offline --no-daemon` compiló correctamente el 19/11/2026.
 - Pendiente: desplegar el Worker para partidas online e instalar la APK para revisar visualmente las plataformas y la muralla.
+
+### 19/11/2026 — Corrección del cierre al abrir la partida con bot
+
+- Logcat del emulador mostró que `makeDebugSlots` lanzaba `IllegalStateException` cuando la muestra aleatoria no encontraba cuatro candidatos.
+- Se cambió el modo bot para usar cuatro huecos de respaldo junto al camino si el muestreo o el espaciado aleatorio no encuentran una combinación; el flujo ya no falla por esos `check`.
+- `:app:assembleDebug --offline --no-daemon` compiló correctamente.
+- `:app:installDebug --offline --no-daemon` instaló la versión corregida en el emulador conectado.
+- Pendiente: pulsar **Partida con bot** en el emulador y confirmar que la arena abre sin cerrar la app.
