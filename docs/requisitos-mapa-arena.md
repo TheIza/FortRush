@@ -51,6 +51,8 @@ Este documento reúne las decisiones del documento de planificación y las decis
 - **Preparación local:** generador v2 integrado al emparejamiento del Worker; Android interpreta el formato v2, genera decoración cosmética con una stream aleatoria separada y dibuja las plataformas y su alcance.
 - **Comprobado localmente (18/11/2026):** compilación `:app:assembleDebug`; 50 semillas generaron 50 mapas válidos y distintos; las cinco plantillas de respaldo también resultaron válidas.
 - **Comprobado localmente (20/11/2026):** `npm test` pasó 16/16, incluidos 1.000 mapas, el contrato del payload y el evento `game_start`. `:app:compileDebugKotlin` terminó correctamente; la tarea completa de tests Android quedó bloqueada después por un `AccessDeniedException` al leer una dependencia de la caché Gradle, así que el nuevo test del parser aún no se puede dar por ejecutado.
+- **Comprobado en el paso B (20/11/2026):** `npm run map:stats` generó 1.000/1.000 caminos distintos; las cinco formas tuvieron entre 18.0 % y 22.8 % de presencia; longitud entre 2396.40 y 2747.25 (media 2592.57); cuatro curvas por mapa; 0 % de respaldos y 0 fallos. `npm test` pasó 18/18, incluyendo semillas distintas, el log de semilla/arquetipo y `game_start`.
+- **Test Android pendiente en el entorno de Codex:** el test unitario del parser no pudo arrancar porque la carpeta configurada para Android SDK está vacía. No se considera superado.
 - **Pendiente de comprobar:** aspecto final en dispositivos reales, despliegue de esta versión del Worker y mapa compartido entre dos móviles.
 - **Todavía no implementado como juego:** tropas moviéndose, construcción interactiva, daño, vida del muro/castillo, sincronización del combate y victoria.
 

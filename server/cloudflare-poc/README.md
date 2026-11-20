@@ -93,15 +93,21 @@ Para revisar las formas y métricas en el navegador, desde esta carpeta ejecuta:
 node debug-map-server.mjs
 ```
 
-Abre `http://127.0.0.1:4173/debug-map.html`. La rejilla compara doce semillas, dibuja slots por jugador y nivel, y muestra los círculos de alcance y métricas del score. El servidor de previsualización escucha solo en el propio dispositivo; no despliega ni contacta Cloudflare. Detenlo con `Ctrl+C`.
+Abre `http://127.0.0.1:4173/debug-map.html`. La rejilla compara doce semillas, dibuja los slots coloreados por jugador y muestra los círculos de alcance y métricas del score. El servidor de previsualización escucha solo en el propio dispositivo; no despliega ni contacta Cloudflare. Detenlo con `Ctrl+C`.
 
-La prueba del módulo se ejecuta con:
+Para medir 1.000 semillas y revisar diversidad, formas, longitudes, curvas, respaldos y fallos:
+
+```powershell
+npm run map:stats
+```
+
+La prueba completa se ejecuta con:
 
 ```powershell
 node --test map-v2.test.mjs
 ```
 
-La suite recorre 1.000 semillas y comprueba determinismo, validez del camino y de los slots, cobertura, simetría, siete huecos por jugador, cinco respaldos válidos y selección de 20 candidatos. También valida el contrato del mapa completo enviado por el Worker y que `game_start` difunde el mismo mapa a los dos jugadores.
+La suite recorre 1.000 semillas y comprueba determinismo, caminos distintos para semillas distintas, validez del camino y de los slots, cobertura, simetría, siete huecos por jugador, cinco respaldos válidos y selección de 20 candidatos. También valida el contrato del mapa completo enviado por el Worker, el registro de semilla y arquetipo al emparejar, y que `game_start` difunde el mismo mapa a los dos jugadores.
 
 ### Integración con Worker y Android — paso e
 

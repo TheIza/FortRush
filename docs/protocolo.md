@@ -56,6 +56,8 @@ Cada slot tiene esta forma:
 
 `owner` es `player1` o `player2`. `coverage` contiene intervalos de distancia sobre el camino que caen dentro del alcance geométrico de una torre. `value` y `coverage` son datos del generador; no establecen coste, daño ni otros valores de combate.
 
+El Worker crea la semilla con `crypto.randomUUID()` al emparejar, no a partir de la identidad ni del lugar en la cola. El registro de servidor `match-map` incluye el ID de partida, esa semilla, el arquetipo elegido y si se usó un mapa de respaldo.
+
 ## Compatibilidad
 
 El cliente ignora campos desconocidos en el objeto de slot para aceptar formatos anteriores. La selección del generador, la puntuación y el renderizado no distinguen unos huecos de otros.

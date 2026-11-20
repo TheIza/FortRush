@@ -49,6 +49,13 @@ test("la misma semilla produce el mismo mapa, slots y cobertura", () => {
   assert.equal(inspectSlots(first.slots, first.path).valid, true);
 });
 
+test("semillas distintas producen geometrías de camino distintas", () => {
+  const first = generateMap("distinct-path-one");
+  const second = generateMap("distinct-path-two");
+
+  assert.notDeepEqual(first.path.points, second.path.points);
+});
+
 test("1.000 semillas producen caminos válidos y siete slots equilibrados por jugador", () => {
   const archetypes = new Set();
   const paths = new Set();

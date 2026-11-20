@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createSharedMap } from "./src/shared-map.mjs";
 import { WebSocketProbe } from "./src/index.mjs";
+import { MAP_ARCHETYPES } from "./src/map-v2.mjs";
 
 test("shared payload carries complete deterministic geometry and fixed gate/castle positions", () => {
   const first = createSharedMap("shared-payload-seed");
@@ -59,4 +60,47 @@ test("game_start sends the complete authoritative map to both players", async ()
     assert.ok(Array.isArray(playerMessages[0].map.path.points));
   }
   assert.equal(stored.get("match").phase, "IN_MATCH");
+});
+
+test("pairing logs the generated seed and map shape", async () => {
+  const stored = new Map();
+  const sentMessages = [];
+  const sockets = ["uid-one", "uid-two"].map((uid) => {
+    let attachment = { uid };
+    return {
+      readyState: WebSocket.OPEN,
+      deserializeAttachment: () => attachment,
+      serializeAttachment: (value) => { attachment = value; },
+      send: (value) => sentMessages.push(JSON.parse(value))
+    };
+  });
+  const context = {
+    storage: {
+      get: async (key) => stored.get(key),
+      put: async (key, value) => { stored.set(key, value); }
+    },
+    getWebSockets: () => sockets
+  };
+  const probe = new WebSocketProbe(context, {});
+  const logEntries = [];
+  const originalLog = console.log;
+
+  try {
+    console.log = (...args) => logEntries.push(args);
+    await probe.pairQueue([
+      { uid: "uid-one", sequence: 1 },
+      { uid: "uid-two", sequence: 2 }
+    ]);
+  } finally {
+    console.log = originalLog;
+  }
+
+  const mapLog = logEntries.find(([eventName]) => eventName === "match-map");
+  assert.ok(mapLog);
+  const details = mapLog[1];
+  const storedMatch = stored.get("match");
+  assert.equal(details.seed, storedMatch.map.seed);
+  assert.equal(details.archetype, storedMatch.map.meta.archetype);
+  assert.ok(MAP_ARCHETYPES.includes(details.archetype));
+  assert.ok(sentMessages.every((message) => message.type === "match.found"));
 });

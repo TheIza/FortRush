@@ -175,12 +175,20 @@ export class WebSocketProbe {
       await this.ctx.storage.put("queue", active.map(({ uid, sequence }) => ({ uid, sequence })));
       return;
     }
+    const mapSeed = crypto.randomUUID();
+    const map = createSharedMap(mapSeed);
     const match = {
       matchId: crypto.randomUUID(),
       phase: "LOADING",
       players: players.map(({ uid, sequence }, index) => ({ uid, sequence, playerNumber: index + 1, loaded: false })),
-      map: createSharedMap(crypto.randomUUID())
+      map
     };
+    console.log("match-map", {
+      matchId: match.matchId,
+      seed: mapSeed,
+      archetype: map.meta.archetype,
+      usedFallback: map.meta.usedFallback
+    });
     await this.ctx.storage.put("match", match);
     await this.ctx.storage.put("queue", []);
     players.forEach((player, index) => {

@@ -64,6 +64,7 @@ Estado: prototipo de emparejamiento desplegado en Cloudflare. La usuaria confirm
 ## Generación del mapa
 
 - El Worker genera la geometría una sola vez al emparejar y envía el mismo objeto a ambos móviles. Kotlin no vuelve a generar el mapa.
+- Para cada pareja, el Worker crea una semilla nueva con `crypto.randomUUID()` y genera el mapa a partir de ella; no deriva la semilla del UID ni del turno en la cola. El registro `match-map` guarda el ID de partida, la semilla, el arquetipo y si se usó respaldo.
 - El generador v2 selecciona por semilla uno de cinco arquetipos y produce un camino sinuoso continuo con simetría de 180 grados. Coloca siete huecos de torre normales por jugador por defecto (configurable), su valor geométrico y segmentos de cobertura.
 - Se valida que el camino permanezca dentro del tablero, no se cruce ni se acerque a sí mismo de forma incompatible con su ancho, y que los huecos queden fuera del camino.
 - Se evalúan 20 variantes del arquetipo elegido; si no se obtiene un mapa válido tras los intentos configurados, se elige una de cinco geometrías de respaldo.
