@@ -2,9 +2,9 @@
 
 Este Worker es el backend activo de FortRush. Atiende el API de perfiles y apodos y el emparejamiento de prueba por WebSocket, usando un Durable Object para mantener la cola y la preparación de una partida de hasta dos jugadores. Verifica tokens de Firebase Authentication y comparte una geometría aleatoria generada por el Worker, idéntica para ambos jugadores.
 
-El generador curvo descrito aquí ya está implementado localmente, pero todavía no está desplegado: hasta publicar el cambio, el Worker activo seguirá enviando el mapa de prueba anterior.
+El generador curvo y la conexión con Android ya están implementados localmente, pero todavía no están desplegados: hasta publicar el cambio, el Worker activo seguirá enviando el mapa anterior.
 
-Todavía no es el servidor completo del juego: no ejecuta combate ni permite reanudar una partida tras perder la conexión. El generador local produce un camino curvo, continuo y simétrico mediante un giro de 180 grados, con cuatro huecos por jugador y la posición de las dos puertas centrada sobre el camino. La app dibuja dos muros de lado a lado con piezas repetidas y solapadas; el Worker envía geometría, no archivos de arte. El generador valida límites, cruces, separación del camino, huecos, muros y decoración; tras 24 intentos, elige entre cinco mapas de respaldo. La lógica de combate sigue pendiente.
+Todavía no es el servidor completo del juego: no ejecuta combate ni permite reanudar una partida tras perder la conexión. El generador v2 produce un camino curvo, continuo y simétrico mediante un giro de 180 grados, con siete huecos por jugador por defecto (configurable) y puertas centradas sobre el camino. La app dibuja dos muros de lado a lado con piezas repetidas y solapadas; el Worker envía geometría, no archivos de arte. El generador valida límites, cruces, separación del camino y huecos; evalúa 20 variantes por semilla y conserva cinco mapas de respaldo. La lógica de combate sigue pendiente.
 
 ## Configuración local
 
@@ -44,7 +44,7 @@ La migración `v1` crea la clase Durable Object con almacenamiento SQLite. Compr
 1. Compila e instala la app con una sesión Firebase válida.
 2. Abre la app en dos dispositivos o en un móvil y un emulador, con dos usuarios Firebase distintos.
 3. Pulsa **Jugar** en ambos.
-4. Comprueba que ambos ven el mismo `matchId` y el mismo mapa, que aparecen cuatro huecos por jugador y que la cuenta atrás empieza cuando ambos terminan de cargar.
+4. Comprueba que ambos ven el mismo `matchId` y mapa, que aparecen siete huecos por jugador y que la cuenta atrás empieza cuando ambos terminan de cargar. El evento `game_start` debe incluir la geometría completa del mapa.
 5. Cancela mientras uno está esperando y confirma que vuelve a Inicio. Después de encontrar rival, el botón cancelar debe estar desactivado.
 
 El rival aparece como **Rival de prueba**: la prueba aún no consulta el apodo de Firestore. No compartas tokens Firebase. Si no se empareja, anota el mensaje que aparece y si ambos dispositivos siguen en la misma conexión de red.
@@ -73,19 +73,19 @@ Pendiente: probar emparejamiento desde dos redes distintas y comprobar desconexi
 - Implementar reglas de partida y resultado en el servidor.
 - Mantener Firebase Spark y Workers Free; no seleccionar Workers Paid ni recursos de pago.
 
-## Generador de mapa v2 — pasos a, b y c
+## Generador de mapa v2 — pasos a, b, c y d
 
 El módulo experimental `src/map-v2.mjs` ofrece la API determinista `generateMap(seed, config)`. Devuelve dimensiones lógicas, camino con longitudes acumuladas, slots de ambos jugadores, cobertura de torre y métricas. El arquetipo se elige a partir de la semilla y el módulo evalúa 20 variantes válidas para quedarse con la de mejor puntuación. El camino y los slots del rival son simétricos al rotar 180 grados; la diferencia de valor entre los lados es 0 %.
 
 El score pondera longitud, cantidad de curvas, apertura lateral, seguridad geométrica, cobertura, equilibrio y dispersión de valor entre plataformas. Los 7 slots de cada jugador incluyen 2 premium, el valor y los intervalos de camino que quedan dentro del alcance de torre.
 
-El módulo todavía no sustituye a `generateSharedMap()` en `src/index.mjs`. Por eso, este cambio no modifica el mapa que reciben los jugadores online ni la simulación, y todavía no se ha desplegado en Cloudflare.
+El Worker y el lector Android ya están conectados localmente al formato v2. La publicación de Cloudflare sigue pendiente; el Worker en producción no cambia hasta que se haga un despliegue explícito.
 
 ### Decoración cosmética del cliente — paso d
 
 `MapDecorationGenerator.kt` crea árboles, arbustos, rocas y flores en Android usando una semilla y un stream pseudoaleatorio separado. Su muestreo mantiene separación entre elementos y descarta ubicaciones junto al camino, las plataformas, las murallas y los castillos. Se dibuja como decoración; no participa en las reglas de combate ni en la geometría que valida el servidor.
 
-El generador está aislado para conectarlo al mapa en el paso e. Las pruebas unitarias comprueban que una semilla repita el mismo resultado y que los objetos respeten las zonas libres.
+Las pruebas unitarias comprueban que una semilla repita el mismo resultado y que los objetos respeten las zonas libres.
 
 Para revisar las formas y métricas en el navegador, desde esta carpeta ejecuta:
 
@@ -101,7 +101,15 @@ La prueba del módulo se ejecuta con:
 node --test map-v2.test.mjs
 ```
 
-La suite recorre 1.000 semillas y comprueba determinismo, validez del camino y de los slots, cobertura, simetría, siete huecos por jugador, cinco respaldos válidos y selección de 20 candidatos. La integración del generador v2 con Worker y Android sigue pendiente.
+La suite recorre 1.000 semillas y comprueba determinismo, validez del camino y de los slots, cobertura, simetría, siete huecos por jugador, cinco respaldos válidos y selección de 20 candidatos. También valida el contrato del mapa completo enviado por el Worker y que `game_start` difunde el mismo mapa a los dos jugadores.
+
+### Integración con Worker y Android — paso e
+
+El Durable Object crea el mapa v2 cuando forma la pareja y guarda la geometría completa en la partida. `match.found` la envía para que los móviles preparen la vista y `game_start` vuelve a incluirla cuando empieza la partida. Se conservan las métricas y los intervalos de cobertura; no se envía decoración. Android valida el formato, normaliza las coordenadas, genera la decoración a partir de la semilla y muestra siete plataformas por jugador. Al tocar una plataforma, aparece el alcance de torre; las premium tienen mayor tamaño y borde dorado. La app nueva acepta el evento `match.started` del Worker anterior, cuyo mapa conserva el formato v1.
+
+El servidor todavía no simula el combate; esta integración solo cambia el mapa compartido y su representación. `GET /health` informa `mapGeneratorVersion: v2` cuando se despliegue este código. El código local no ha sido desplegado ni enviado con `git push`.
+
+Se añadió una prueba unitaria de lectura del payload v2. En esta sesión, `:app:compileDebugKotlin` pasó, pero la ejecución de tests Android no terminó: Javac recibió `AccessDeniedException` al leer un JAR de la caché Gradle, por lo que el test nuevo del parser sigue pendiente. Las pruebas de decoración del paso d sí pasaron anteriormente. La prueba visual con el Worker desplegado desde dos dispositivos y el despliegue siguen pendientes.
 
 
 ## Pruebas del generador de mapas

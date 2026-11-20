@@ -1,7 +1,7 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { handleProfileApi, ProfileApiError } from "./profile-api.mjs";
 import { getNicknamePolicyMessage } from "../../src/nickname-policy.mjs";
-import { generateSharedMap } from "./map-generator.mjs";
+import { createSharedMap } from "./shared-map.mjs";
 
 const FIREBASE_JWKS = createRemoteJWKSet(
   new URL("https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com")
@@ -26,7 +26,8 @@ export default {
       return Response.json({
         status: "ok",
         service: "fortrush-cloudflare",
-        profileApiConfigured: Boolean(env.FIREBASE_SERVICE_ACCOUNT_JSON)
+        profileApiConfigured: Boolean(env.FIREBASE_SERVICE_ACCOUNT_JSON),
+        mapGeneratorVersion: "v2"
       });
     }
     if (url.pathname.startsWith("/api/")) {
@@ -178,7 +179,7 @@ export class WebSocketProbe {
       matchId: crypto.randomUUID(),
       phase: "LOADING",
       players: players.map(({ uid, sequence }, index) => ({ uid, sequence, playerNumber: index + 1, loaded: false })),
-      map: generateSharedMap()
+      map: createSharedMap(crypto.randomUUID())
     };
     await this.ctx.storage.put("match", match);
     await this.ctx.storage.put("queue", []);
@@ -241,7 +242,7 @@ export class WebSocketProbe {
     }
     match.phase = "IN_MATCH";
     await this.ctx.storage.put("match", match);
-    this.broadcast("match.started", { matchId: match.matchId });
+    this.broadcast("game_start", { matchId: match.matchId, map: match.map });
   }
 
   async webSocketClose(socket) {

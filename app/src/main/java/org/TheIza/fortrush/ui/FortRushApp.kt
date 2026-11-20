@@ -100,7 +100,10 @@ fun FortRushApp(userId: String, onSignOut: () -> Unit = {}) {
                             matchmakingStage = MatchmakingStage.LOADING_MAP
                         }
                         is MatchmakingEvent.Countdown -> { countdown = event.seconds; matchmakingStage = MatchmakingStage.COUNTDOWN }
-                        is MatchmakingEvent.Started -> matchmakingStage = MatchmakingStage.STARTED
+                        is MatchmakingEvent.Started -> {
+                            sharedMap = event.map
+                            matchmakingStage = MatchmakingStage.STARTED
+                        }
                         MatchmakingEvent.QueueCancelled -> {
                             matchmakingConnection?.close()
                             matchmakingConnection = null

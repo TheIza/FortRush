@@ -5,6 +5,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,6 +23,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -35,6 +40,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -57,9 +63,16 @@ data class ArenaTowerPlacement(
     val kind: ArenaTowerKind
 )
 
+private data class ArenaSlotVisual(
+    val ownerPlayerNumber: Int,
+    val slotIndex: Int,
+    val point: MatchPoint,
+    val id: String,
+    val tier: String
+)
+
 /**
- * First visual arena pass. The initial state intentionally has eight empty pads
- * and two closed gates. Match state can later supply destroyed walls and towers.
+ * Shared map geometry is server generated; this screen only scales, rotates, and draws it.
  */
 @Composable
 fun BattleArenaScreen(
@@ -72,6 +85,7 @@ fun BattleArenaScreen(
     onExitDebug: (() -> Unit)? = null
 ) {
     val opponentPlayerNumber = if (playerNumber == 1) 2 else 1
+    var selectedSlotId by remember(map.seed, playerNumber) { mutableStateOf<String?>(null) }
 
     Column(
         Modifier
@@ -93,12 +107,15 @@ fun BattleArenaScreen(
             playerNumber = playerNumber,
             destroyedWallOwners = destroyedWallOwners,
             towerPlacements = towerPlacements,
+            selectedSlotId = selectedSlotId,
+            onSelectSlot = { selectedSlotId = it },
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
                 .semantics {
-                    contentDescription =
-                        "Arena aleatoria compartida, ocho huecos de torre y vista del jugador $playerNumber"
+                    contentDescription = "Arena aleatoria compartida, " +
+                        "${map.player1Slots.size + map.player2Slots.size} huecos de torre. " +
+                        "Toca un hueco para ver su alcance. Vista del jugador $playerNumber"
                 }
         )
 
@@ -285,6 +302,8 @@ private fun ArenaMapCanvas(
     playerNumber: Int,
     destroyedWallOwners: Set<Int>,
     towerPlacements: List<ArenaTowerPlacement>,
+    selectedSlotId: String?,
+    onSelectSlot: (String?) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val grass = painterResource(R.drawable.cesped)
@@ -304,8 +323,33 @@ private fun ArenaMapCanvas(
     val redArrow = painterResource(R.drawable.torre_flechas_roja)
     val blueCannon = painterResource(R.drawable.torre_canon_azul)
     val redCannon = painterResource(R.drawable.torre_canon_roja)
+    val slotVisuals = buildList {
+        map.player1Slots.forEachIndexed { index, point ->
+            val metadata = map.slotMetadata.firstOrNull { it.ownerPlayerNumber == 1 && it.slotIndex == index }
+            add(ArenaSlotVisual(1, index, point, metadata?.id ?: "player1-$index", metadata?.tier ?: "normal"))
+        }
+        map.player2Slots.forEachIndexed { index, point ->
+            val metadata = map.slotMetadata.firstOrNull { it.ownerPlayerNumber == 2 && it.slotIndex == index }
+            add(ArenaSlotVisual(2, index, point, metadata?.id ?: "player2-$index", metadata?.tier ?: "normal"))
+        }
+    }
 
-    Canvas(modifier) {
+    Canvas(
+        modifier.pointerInput(map.seed, playerNumber, slotVisuals) {
+            detectTapGestures { tap ->
+                val boardWidth = minOf(size.width.toFloat(), size.height * 9f / 16f)
+                val boardLeft = (size.width - boardWidth) / 2f
+                val nearest = slotVisuals.map { slot ->
+                    val x = if (playerNumber == 2) 1f - slot.point.x else slot.point.x
+                    val y = if (playerNumber == 2) 1f - slot.point.y else slot.point.y
+                    val center = Offset(boardLeft + x * boardWidth, y * size.height)
+                    slot to (center - tap).getDistance()
+                }.minByOrNull { it.second }
+                val hitRadius = maxOf(boardWidth * map.slotDiameterFraction * 0.72f, 24.dp.toPx())
+                onSelectSlot(nearest?.takeIf { it.second <= hitRadius }?.first?.id)
+            }
+        }
+    ) {
         val canvasSize = size
         with(grass) { draw(size = canvasSize) }
 
@@ -327,6 +371,12 @@ private fun ArenaMapCanvas(
 
         // Decorative art is behind the road, pads, gates, and castles.
         map.decorations.sortedBy { it.point.y }.forEach { decoration ->
+            val center = screenOriented(decoration.point)
+            if (decoration.kind == "flower") {
+                val variant = ((decoration.point.x * 997f + decoration.point.y * 619f).toInt() and 1) == 0
+                drawArenaFlower(center, boardWidth * 0.018f * decoration.scale, variant)
+                return@forEach
+            }
             val painter = decorationPainter(
                 decoration = decoration,
                 treeOne = treeOne,
@@ -336,7 +386,6 @@ private fun ArenaMapCanvas(
                 rockOne = rockOne,
                 rockTwo = rockTwo
             )
-            val center = screenOriented(decoration.point)
             val baseWidth = when (decoration.kind) {
                 "tree" -> boardWidth * 0.14f
                 "bush" -> boardWidth * 0.10f
@@ -353,7 +402,7 @@ private fun ArenaMapCanvas(
                 if (index == 0) moveTo(position.x, position.y) else lineTo(position.x, position.y)
             }
         }
-        val roadWidth = boardWidth * 0.13f
+        val roadWidth = boardWidth * map.pathWidthFraction.coerceIn(0.04f, 0.15f)
         drawPath(
             path = road,
             color = Color(0x553A2B20),
@@ -391,14 +440,20 @@ private fun ArenaMapCanvas(
             )
         )
 
-        val allSlots = buildList {
-            map.player1Slots.forEachIndexed { index, point -> add(Triple(1, index, point)) }
-            map.player2Slots.forEachIndexed { index, point -> add(Triple(2, index, point)) }
-        }
-        allSlots.forEach { (_, _, point) ->
-            val center = oriented(point)
-            val padWidth = boardWidth * 0.18f
+        slotVisuals.forEach { slot ->
+            val center = oriented(slot.point)
+            val premium = slot.tier == "premium"
+            val ownerColor = if (slot.ownerPlayerNumber == 1) Color(0xFF59A3FF) else Color(0xFFF47766)
+            val padWidth = boardWidth * map.slotDiameterFraction * if (premium) 1.14f else 1f
+            if (slot.id == selectedSlotId && map.towerRangeFraction > 0f) {
+                val rangeRadius = boardWidth * map.towerRangeFraction
+                drawCircle(ownerColor.copy(alpha = 0.10f), rangeRadius, center)
+                drawCircle(ownerColor.copy(alpha = 0.88f), rangeRadius, center, style = Stroke(width = 2.dp.toPx()))
+            }
+            if (premium) drawCircle(Color(0x44FFE38E), padWidth * 0.68f, center)
             drawCenteredPainter(pad, center, padWidth, padWidth / painterAspect(pad))
+            drawCircle(ownerColor, padWidth * 0.53f, center, style = Stroke(width = 2.5.dp.toPx()))
+            if (premium) drawCircle(Color(0xFFFFE38E), padWidth * 0.68f, center, style = Stroke(width = 2.dp.toPx()))
         }
 
         // Castles sit behind their wall so the masonry reads as one continuous barrier.
@@ -453,6 +508,21 @@ private fun decorationPainter(
         "bush" -> if (variant) bushOne else bushTwo
         else -> if (variant) rockOne else rockTwo
     }
+}
+
+private fun DrawScope.drawArenaFlower(center: Offset, size: Float, variant: Boolean) {
+    val petalColor = if (variant) Color(0xFFFFD978) else Color(0xFFFF91A8)
+    val petalOffset = size * 0.34f
+    val petalRadius = size * 0.24f
+    listOf(
+        Offset(-petalOffset, 0f),
+        Offset(petalOffset, 0f),
+        Offset(0f, -petalOffset),
+        Offset(0f, petalOffset)
+    ).forEach { offset ->
+        drawCircle(petalColor, petalRadius, Offset(center.x + offset.x, center.y + offset.y))
+    }
+    drawCircle(Color(0xFF70452A), size * 0.16f, center)
 }
 
 private fun painterAspect(painter: Painter): Float {

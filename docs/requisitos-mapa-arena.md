@@ -10,11 +10,11 @@ Este documento reúne las decisiones del documento de planificación y las decis
 - El camino es una sola ruta continua, con curvas y cambios de dirección; no es una línea recta, no tiene ramales y conecta ambos lados.
 - El recorrido se refleja mediante una rotación de 180° para que los lados tengan una disposición equivalente.
 - La vista del jugador coloca su castillo en la parte inferior. Se gira el mundo de la arena para el segundo jugador; las cartas, textos y controles permanecen derechos.
-- Hay cuatro plataformas de torre por jugador, ocho en total. Al comenzar la partida están vacías.
+- El generador de mapa v2 coloca siete plataformas por jugador por defecto (configurable), catorce en total. Al comenzar la partida están vacías. Esta cifra sustituye el prototipo visual anterior de cuatro plataformas.
 - Cada jugador tiene un muro con una puerta cerrada, colocado donde el camino cruza la línea del muro.
 - Cada muro recorre la pantalla de izquierda a derecha, hasta ambos bordes. Los tramos deben solaparse lo suficiente para que no queden huecos ni costuras visibles.
 - El aspecto destruido del muro mostrará la puerta derrumbada y un paso abierto por los restos; no será simplemente una puerta intacta abierta.
-- Las cuatro plataformas de cada jugador se sitúan junto a distintos tramos de su lado del camino; no aparecen en filas horizontales fijas.
+- Las plataformas de cada jugador se sitúan junto a distintos tramos de su lado del camino; no aparecen en filas horizontales fijas.
 - La disposición de las plataformas es aleatoria para la partida y la del rival es la misma reflejada 180°.
 - Hay zonas prohibidas para construir: una franja central alrededor de la mitad del mapa y una franja que empieza un poco antes de cada muro y continúa hasta el borde inferior/superior correspondiente. Se rechaza cualquier hueco cuyo círculo de construcción invada esas franjas.
 - Cada plataforma debe tocar una banda invisible que rodea el camino: se mantiene separada del borde visible del camino, pero no puede quedar más lejos que el ancho de esa banda más el radio de la plataforma.
@@ -29,7 +29,7 @@ Este documento reúne las decisiones del documento de planificación y las decis
 1. El camino contiene puntos finitos dentro de los límites del tablero y tiene continuidad entre puntos.
 2. El camino no se cruza consigo mismo y mantiene espacio suficiente entre curvas para el ancho del camino y sus bordes.
 3. Los dos lados son simétricos mediante giro de 180° y ambos jugadores comparten la misma secuencia de puntos.
-4. Las ocho plataformas se mantienen fuera del camino y de las zonas prohibidas, separadas entre sí y divididas en cuatro por jugador. Las del segundo jugador son un giro exacto de 180° de las del primero.
+4. Las catorce plataformas del generador v2 se mantienen fuera del camino y de las zonas prohibidas, separadas entre sí y divididas por igual entre jugadores. Las del segundo jugador son un giro exacto de 180° de las del primero.
 5. Las decoraciones respetan el espacio de seguridad de caminos, plataformas y castillos.
 6. Las puertas quedan centradas sobre el camino; los tramos de muro cubren todo el ancho visible.
 7. El tamaño y la disposición se adaptan a móviles de diferentes proporciones, dejando los controles fuera del área del mapa.
@@ -47,9 +47,10 @@ Este documento reúne las decisiones del documento de planificación y las decis
 
 ## Estado de esta entrega
 
-- **Diseño acordado:** arena vertical, camino aleatorio y compartido, cuatro espacios por jugador, muro completo de lado a lado y giro de la vista por jugador.
-- **Preparación local:** generador del servidor, lectura de la geometría recibida, arte separado de puerta intacta/derrumbada y pantalla visual de arena.
+- **Diseño acordado:** arena vertical, camino aleatorio y compartido, siete espacios por jugador en el generador v2, muro completo de lado a lado y giro de la vista por jugador.
+- **Preparación local:** generador v2 integrado al emparejamiento del Worker; Android interpreta el formato v2, genera decoración cosmética con una stream aleatoria separada y dibuja las plataformas y su alcance.
 - **Comprobado localmente (18/11/2026):** compilación `:app:assembleDebug`; 50 semillas generaron 50 mapas válidos y distintos; las cinco plantillas de respaldo también resultaron válidas.
+- **Comprobado localmente (20/11/2026):** `npm test` pasó 16/16, incluidos 1.000 mapas, el contrato del payload y el evento `game_start`. `:app:compileDebugKotlin` terminó correctamente; la tarea completa de tests Android quedó bloqueada después por un `AccessDeniedException` al leer una dependencia de la caché Gradle, así que el nuevo test del parser aún no se puede dar por ejecutado.
 - **Pendiente de comprobar:** aspecto final en dispositivos reales, despliegue de esta versión del Worker y mapa compartido entre dos móviles.
 - **Todavía no implementado como juego:** tropas moviéndose, construcción interactiva, daño, vida del muro/castillo, sincronización del combate y victoria.
 
