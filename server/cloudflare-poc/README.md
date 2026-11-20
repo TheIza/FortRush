@@ -73,11 +73,13 @@ Pendiente: probar emparejamiento desde dos redes distintas y comprobar desconexi
 - Implementar reglas de partida y resultado en el servidor.
 - Mantener Firebase Spark y Workers Free; no seleccionar Workers Paid ni recursos de pago.
 
-## Generador de mapa v2 — pasos a y b
+## Generador de mapa v2 — pasos a, b y c
 
-El módulo experimental `src/map-v2.mjs` es una API pura y determinista: `generateMap(seed, config)` devuelve las dimensiones lógicas, el camino con longitudes acumuladas, los slots y métricas. El camino admite cinco arquetipos y el rival recibe la geometría rotada 180 grados. Cada jugador tiene siete plataformas; dos son premium. Cada slot incluye el valor y los intervalos de camino que quedan dentro del alcance de una torre.
+El módulo experimental `src/map-v2.mjs` ofrece la API determinista `generateMap(seed, config)`. Devuelve dimensiones lógicas, camino con longitudes acumuladas, slots de ambos jugadores, cobertura de torre y métricas. El arquetipo se elige a partir de la semilla y el módulo evalúa 20 variantes válidas para quedarse con la de mejor puntuación. El camino y los slots del rival son simétricos al rotar 180 grados; la diferencia de valor entre los lados es 0 %.
 
-Este módulo todavía no sustituye a `generateSharedMap()` en `src/index.mjs`. Por eso, los mapas online y la simulación no cambian todavía. Tampoco modifica el servidor que está publicado en Cloudflare.
+El score pondera longitud, cantidad de curvas, apertura lateral, seguridad geométrica, cobertura, equilibrio y dispersión de valor entre plataformas. Los 7 slots de cada jugador incluyen 2 premium, el valor y los intervalos de camino que quedan dentro del alcance de torre.
+
+El módulo todavía no sustituye a `generateSharedMap()` en `src/index.mjs`. Por eso, este cambio no modifica el mapa que reciben los jugadores online ni la simulación, y todavía no se ha desplegado en Cloudflare.
 
 Para revisar las formas y métricas en el navegador, desde esta carpeta ejecuta:
 
@@ -85,7 +87,7 @@ Para revisar las formas y métricas en el navegador, desde esta carpeta ejecuta:
 node debug-map-server.mjs
 ```
 
-Abre `http://127.0.0.1:4173/debug-map.html`. La rejilla compara doce semillas, dibuja las plataformas por jugador y nivel, y muestra círculos de alcance. El servidor de previsualización escucha solo en el propio dispositivo; no despliega ni contacta Cloudflare. Detenlo con `Ctrl+C`.
+Abre `http://127.0.0.1:4173/debug-map.html`. La rejilla compara doce semillas, dibuja slots por jugador y nivel, y muestra los círculos de alcance y métricas del score. El servidor de previsualización escucha solo en el propio dispositivo; no despliega ni contacta Cloudflare. Detenlo con `Ctrl+C`.
 
 La prueba del módulo se ejecuta con:
 
@@ -93,7 +95,7 @@ La prueba del módulo se ejecuta con:
 node --test map-v2.test.mjs
 ```
 
-La suite recorre 1.000 semillas y comprueba determinismo, validez del camino y de los slots, separación, simetría, cobertura, cantidad de plataformas y cinco respaldos válidos. El score de 20 candidatos, la decoración y la integración con Worker y Android siguen pendientes.
+La suite recorre 1.000 semillas y comprueba determinismo, validez del camino y de los slots, cobertura, simetría, siete huecos por jugador, cinco respaldos válidos y selección de 20 candidatos. La decoración y la integración con Worker y Android siguen pendientes.
 
 
 ## Pruebas del generador de mapas

@@ -68,6 +68,10 @@ test("1.000 semillas producen caminos válidos y siete slots equilibrados por ju
     assert.ok(pathValidation.metrics.minimumRadius === null || pathValidation.metrics.minimumRadius >= map.path.width * 1.6);
     assert.equal(map.meta.usedFallback, false, `${map.meta.seed} no debería depender del respaldo`);
     assert.ok(map.meta.towerRange > 0);
+    assert.equal(map.meta.candidatesEvaluated, 20);
+    assert.ok(map.meta.candidateIndex >= 1 && map.meta.candidateIndex <= 20);
+    assert.ok(map.meta.score >= 0 && map.meta.score <= 100);
+    assert.ok(map.meta.scoreBreakdown.ownerValueDifferencePercent < 8);
     archetypes.add(map.meta.archetype);
     paths.add(JSON.stringify(map.path.points));
   }

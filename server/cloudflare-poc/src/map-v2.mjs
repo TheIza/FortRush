@@ -43,6 +43,7 @@ const DEFAULTS = Object.freeze({
   minimumLengthFactor: 1.25,
   maximumLengthFactor: 3.0,
   noiseFraction: 0.012,
+  candidatesPerSeed: 20,
   maxAttempts: 50
 });
 
@@ -111,6 +112,9 @@ function resolvedConfig(config = {}) {
     noiseFraction: Number.isFinite(config.noiseFraction)
       ? clamp(config.noiseFraction, 0, 0.04)
       : DEFAULTS.noiseFraction,
+    candidatesPerSeed: Number.isFinite(config.candidatesPerSeed)
+      ? clamp(Math.floor(config.candidatesPerSeed), 1, 50)
+      : DEFAULTS.candidatesPerSeed,
     maxAttempts
   };
 }
@@ -895,6 +899,48 @@ function scorePath(metrics, config) {
   return Math.round((lengthFit * 0.35 + widthFit * 0.20 + radiusFit * 0.20 + separationFit * 0.15 + curveFit * 0.10) * 100);
 }
 
+function scoreCandidate(metrics, slots, config) {
+  const pathScore = scorePath(metrics, config) / 100;
+  const values = slots.map((slot) => slot.value);
+  const meanValue = values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length);
+  const variance = values.reduce((sum, value) => sum + (value - meanValue) ** 2, 0) / Math.max(1, values.length);
+  const coefficientOfVariation = meanValue > 0 ? Math.sqrt(variance) / meanValue : 1;
+  const valuesByOwner = ["player1", "player2"].map((owner) =>
+    slots.filter((slot) => slot.owner === owner).reduce((sum, slot) => sum + slot.value, 0)
+  );
+  const equityDifference = Math.abs(valuesByOwner[0] - valuesByOwner[1]) /
+    Math.max(valuesByOwner[0], valuesByOwner[1], 1);
+  const lengthMidpoint = (config.minLength + config.maxLength) / 2;
+  const lengthFit = clamp(1 - Math.abs(metrics.totalLength - lengthMidpoint) /
+    Math.max((config.maxLength - config.minLength) / 2, 1), 0, 1);
+  const curveFit = metrics.curveCount >= 3 && metrics.curveCount <= 6
+    ? 1
+    : clamp(1 - Math.min(Math.abs(metrics.curveCount - 3), Math.abs(metrics.curveCount - 6)) / 3, 0, 1);
+  const openingFit = clamp(metrics.widthUsage / config.minimumWidthUsage, 0, 1);
+  const clearanceFit = Math.min(
+    metrics.minimumRadius === null ? 1 : clamp(metrics.minimumRadius / config.minimumRadius, 0, 1),
+    metrics.minimumSeparation === null ? 1 : clamp(metrics.minimumSeparation / config.minimumSegmentSeparation, 0, 1)
+  );
+  const coverageFit = clamp(meanValue / (config.towerRange * 2), 0, 1);
+  const equityFit = clamp(1 - equityDifference / 0.08, 0, 1);
+  const variationFit = clamp(1 - Math.abs(coefficientOfVariation - 0.18) / 0.3, 0, 1);
+  const breakdown = {
+    length: rounded(lengthFit * 100),
+    curves: rounded(curveFit * 100),
+    opening: rounded(openingFit * 100),
+    clearance: rounded(clearanceFit * 100),
+    coverage: rounded(coverageFit * 100),
+    equity: rounded(equityFit * 100),
+    slotValueVariation: rounded(variationFit * 100),
+    slotValueVariance: rounded(variance),
+    slotValueCoefficientOfVariation: rounded(coefficientOfVariation),
+    ownerValueDifferencePercent: rounded(equityDifference * 100)
+  };
+  const score = lengthFit * 0.25 + curveFit * 0.20 + openingFit * 0.20 + clearanceFit * 0.15 +
+    coverageFit * 0.10 + equityFit * 0.05 + variationFit * 0.05;
+  return { score: Math.round(score * 100), breakdown };
+}
+
 function candidateMap(seed, archetype, random, config, noiseFraction, slotSeed = hashSeed(`${seed}|${archetype}|slots`)) {
   const path = buildFullPath(archetype, random, config, noiseFraction);
   const inspected = inspectPath(path, config);
@@ -906,6 +952,9 @@ function candidateMap(seed, archetype, random, config, noiseFraction, slotSeed =
     issues: ["no se pudieron colocar todos los slots"],
     metrics: null
   };
+  const score = inspected.metrics && slots
+    ? scoreCandidate(inspected.metrics, slots, config)
+    : { score: 0, breakdown: null };
   return {
     map: {
       width: config.width,
@@ -915,7 +964,9 @@ function candidateMap(seed, archetype, random, config, noiseFraction, slotSeed =
       meta: {
         seed: String(seed),
         archetype,
-        score: scorePath(inspected.metrics ?? { totalLength: 0, widthUsage: 0, minimumRadius: 0, minimumSeparation: 0 }, config),
+        score: score.score,
+        scoreBreakdown: score.breakdown,
+        pathScore: scorePath(inspected.metrics ?? { totalLength: 0, widthUsage: 0, minimumRadius: 0, minimumSeparation: 0 }, config),
         metrics: inspected.metrics,
         slotMetrics: inspectedSlots.metrics,
         towerRange: rounded(config.towerRange),
@@ -950,15 +1001,31 @@ export function generateMap(seed, configInput = {}) {
   const seedText = String(seed);
   const initialSeed = hashSeed(seed);
   const config = resolvedConfig(configInput);
+  const selectedArchetype = MAP_ARCHETYPES[mixSeed(initialSeed ^ 0x6d2b79f5) % MAP_ARCHETYPES.length];
 
   for (let attempt = 0; attempt < config.maxAttempts; attempt += 1) {
-    const attemptSeed = mixSeed(initialSeed ^ Math.imul(attempt + 1, 0x9e3779b9));
-    const random = mulberry32(attemptSeed);
-    const archetype = MAP_ARCHETYPES[Math.floor(random() * MAP_ARCHETYPES.length)];
-    const { map, inspected } = candidateMap(seedText, archetype, random, config, config.noiseFraction, attemptSeed);
-    if (inspected.valid) {
-      map.meta.attempts = attempt + 1;
-      return map;
+    let bestCandidate = null;
+    let bestCandidateIndex = -1;
+    let candidatesEvaluated = 0;
+
+    for (let candidateIndex = 0; candidateIndex < config.candidatesPerSeed; candidateIndex += 1) {
+      const ordinal = attempt * config.candidatesPerSeed + candidateIndex + 1;
+      const candidateSeed = mixSeed(initialSeed ^ Math.imul(ordinal, 0x9e3779b9));
+      const random = mulberry32(candidateSeed);
+      const { map, inspected } = candidateMap(seedText, selectedArchetype, random, config, config.noiseFraction, candidateSeed);
+      candidatesEvaluated += 1;
+      if (!inspected.valid) continue;
+      if (!bestCandidate || map.meta.score > bestCandidate.meta.score) {
+        bestCandidate = map;
+        bestCandidateIndex = candidateIndex + 1;
+      }
+    }
+
+    if (bestCandidate) {
+      bestCandidate.meta.attempts = attempt + 1;
+      bestCandidate.meta.candidatesEvaluated = candidatesEvaluated;
+      bestCandidate.meta.candidateIndex = bestCandidateIndex;
+      return bestCandidate;
     }
   }
 

@@ -113,7 +113,9 @@
           <div class="title-row"><h2>${esc(map.meta.archetype)}</h2><span class="badge ${validation.valid && slotsValidation.valid ? "" : "bad"}">${validation.valid && slotsValidation.valid ? "VÁLIDO" : "REVISAR"}</span></div>
           <dl>
             <dt>Semilla</dt><dd>${esc(seed)}</dd>
-            <dt>Puntuación de camino</dt><dd>${map.meta.score}/100</dd>
+            <dt>Puntuación del mapa</dt><dd>${map.meta.score}/100</dd>
+            <dt>Score del camino</dt><dd>${map.meta.pathScore}/100</dd>
+            <dt>Candidatos / elegido</dt><dd>${map.meta.candidatesEvaluated} / ${map.meta.candidateIndex}</dd>
             <dt>Longitud</dt><dd>${metrics.totalLength}</dd>
             <dt>Uso del ancho</dt><dd>${(metrics.widthUsage * 100).toFixed(1)} %</dd>
             <dt>Curvas amplias</dt><dd>${metrics.curveCount}</dd>
@@ -122,6 +124,8 @@
             <dt>Huecos P1 / P2</dt><dd>${slotsValidation.metrics?.countPerPlayer.join(" / ") ?? "inválidos"}</dd>
             <dt>Premium P1 / P2</dt><dd>${slotsValidation.metrics?.premiumPerPlayer.join(" / ") ?? "inválidos"}</dd>
             <dt>Separación entre huecos</dt><dd>${slotsValidation.metrics?.minimumSeparation ?? "∞"}</dd>
+            <dt>Equilibrio de valor</dt><dd>${map.meta.scoreBreakdown?.ownerValueDifferencePercent ?? "?"} %</dd>
+            <dt>Varianza / CV del valor</dt><dd>${map.meta.scoreBreakdown?.slotValueVariance ?? "?"} / ${map.meta.scoreBreakdown?.slotValueCoefficientOfVariation ?? "?"}</dd>
             <dt>Puntos / intentos</dt><dd>${metrics.pointCount} / ${map.meta.attempts}</dd>
           </dl>
           <p class="slots-note">${(map.slots ?? []).length ? `${map.slots.length} huecos · radio de torre ${map.meta.towerRange}` : "Sin huecos"}${map.meta.usedFallback ? " · plantilla de respaldo" : ""}</p>
@@ -131,7 +135,7 @@
 
     try {
       for (const seed of seeds) host.append(cardFor(seed));
-      status.textContent = `Listo: ${seeds.length} semillas deterministas con camino, 7 huecos por jugador y cobertura de torre.`;
+      status.textContent = `Listo: ${seeds.length} semillas. Cada mapa evalúa 20 variantes con 7 huecos por jugador.`;
     } catch (error) {
       status.textContent = `Error al generar el mapa: ${error.message}`;
       status.style.color = "#ffaaa2";
