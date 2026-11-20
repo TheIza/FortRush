@@ -111,7 +111,7 @@ La suite recorre 1.000 semillas y comprueba determinismo, caminos distintos para
 
 ### Integración con Worker y Android — paso e
 
-El Durable Object crea el mapa v2 cuando forma la pareja y guarda la geometría completa en la partida. `match.found` la envía para que los móviles preparen la vista y `game_start` vuelve a incluirla cuando empieza la partida. Se conservan las métricas y los intervalos de cobertura; no se envía decoración. Android valida el formato, normaliza las coordenadas, genera la decoración a partir de la semilla y muestra siete plataformas iguales por jugador. Al tocar una plataforma, aparece el alcance de torre. El cliente ignora campos desconocidos procedentes de formatos anteriores.
+El Durable Object crea el mapa v2 cuando forma la pareja y guarda la geometría completa en la partida. `match.found` la envía para que los móviles preparen la vista y `game_start` vuelve a incluirla cuando empieza la partida. Se conservan las métricas y los intervalos de cobertura; no se envía decoración. Android valida el formato, normaliza las coordenadas, genera la decoración a partir de la semilla y muestra siete plataformas iguales por jugador. Solo los huecos propios responden al toque y pueden mostrar selección o alcance; los del rival son solo visuales. El cliente ignora campos desconocidos procedentes de formatos anteriores.
 
 El servidor todavía no simula el combate; esta integración solo cambia el mapa compartido y su representación. `GET /health` informa `mapGeneratorVersion: v2` cuando se despliegue este código. El código local no ha sido desplegado ni enviado con `git push`.
 

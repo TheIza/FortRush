@@ -338,14 +338,20 @@ private fun ArenaMapCanvas(
             detectTapGestures { tap ->
                 val boardWidth = minOf(size.width.toFloat(), size.height * 9f / 16f)
                 val boardLeft = (size.width - boardWidth) / 2f
-                val nearest = slotVisuals.map { slot ->
+                val hitRadius = maxOf(boardWidth * map.slotDiameterFraction * 0.72f, 24.dp.toPx())
+                val hitTargets = slotVisuals.map { slot ->
                     val x = if (playerNumber == 2) 1f - slot.point.x else slot.point.x
                     val y = if (playerNumber == 2) 1f - slot.point.y else slot.point.y
-                    val center = Offset(boardLeft + x * boardWidth, y * size.height)
-                    slot to (center - tap).getDistance()
-                }.minByOrNull { it.second }
-                val hitRadius = maxOf(boardWidth * map.slotDiameterFraction * 0.72f, 24.dp.toPx())
-                onSelectSlot(nearest?.takeIf { it.second <= hitRadius }?.first?.id)
+                    ArenaSlotTarget(
+                        id = slot.id,
+                        ownerPlayerNumber = slot.ownerPlayerNumber,
+                        x = boardLeft + x * boardWidth,
+                        y = y * size.height,
+                        touchRadius = hitRadius
+                    )
+                }
+                val selected = pickOwnSlot(MatchPoint(tap.x, tap.y), hitTargets, playerNumber)
+                onSelectSlot(selected?.id)
             }
         }
     ) {
@@ -443,7 +449,7 @@ private fun ArenaMapCanvas(
             val center = oriented(slot.point)
             val ownerColor = if (slot.ownerPlayerNumber == 1) Color(0xFF59A3FF) else Color(0xFFF47766)
             val padWidth = boardWidth * map.slotDiameterFraction
-            if (slot.id == selectedSlotId && map.towerRangeFraction > 0f) {
+            if (slot.ownerPlayerNumber == playerNumber && slot.id == selectedSlotId && map.towerRangeFraction > 0f) {
                 val rangeRadius = boardWidth * map.towerRangeFraction
                 drawCircle(ownerColor.copy(alpha = 0.10f), rangeRadius, center)
                 drawCircle(ownerColor.copy(alpha = 0.88f), rangeRadius, center, style = Stroke(width = 2.dp.toPx()))
