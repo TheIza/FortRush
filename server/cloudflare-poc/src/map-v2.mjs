@@ -29,6 +29,13 @@ const DEFAULTS = Object.freeze({
   width: 1000,
   height: 1800,
   pathWidth: 80,
+  slotsPerPlayer: 7,
+  slotRadius: 40,
+  slotHalfHeightFraction: 0.04,
+  slotGap: 12,
+  invisibleRoadExtra: 25,
+  towerRange: 300,
+  premiumSlotsPerPlayer: 2,
   sampleSpacing: 14,
   minimumRadiusFactor: 1.6,
   minimumSegmentSeparationFactor: 1.12,
@@ -60,6 +67,35 @@ function resolvedConfig(config = {}) {
     width,
     height,
     pathWidth,
+    slotsPerPlayer: Number.isFinite(config.slotsPerPlayer)
+      ? clamp(Math.floor(config.slotsPerPlayer), 1, 12)
+      : DEFAULTS.slotsPerPlayer,
+    slotRadius: Number.isFinite(config.slotRadius) && config.slotRadius > 0
+      ? config.slotRadius
+      : DEFAULTS.slotRadius * width / DEFAULTS.width,
+    slotHalfHeight: Number.isFinite(config.slotHalfHeight) && config.slotHalfHeight > 0
+      ? config.slotHalfHeight
+      : height * DEFAULTS.slotHalfHeightFraction,
+    slotGap: Number.isFinite(config.slotGap) && config.slotGap >= 0 ? config.slotGap : DEFAULTS.slotGap,
+    invisibleRoadExtra: Number.isFinite(config.invisibleRoadExtra) && config.invisibleRoadExtra >= 0
+      ? config.invisibleRoadExtra
+      : DEFAULTS.invisibleRoadExtra * width / DEFAULTS.width,
+    towerRange: Number.isFinite(config.towerRange) && config.towerRange > 0
+      ? config.towerRange
+      : DEFAULTS.towerRange * width / DEFAULTS.width,
+    premiumSlotsPerPlayer: Number.isFinite(config.premiumSlotsPerPlayer)
+      ? clamp(Math.floor(config.premiumSlotsPerPlayer), 1, 2)
+      : DEFAULTS.premiumSlotsPerPlayer,
+    minimumSlotSeparation: Number.isFinite(config.minimumSlotSeparation) && config.minimumSlotSeparation > 0
+      ? config.minimumSlotSeparation
+      : (Number.isFinite(config.slotRadius) && config.slotRadius > 0 ? config.slotRadius : DEFAULTS.slotRadius * width / DEFAULTS.width) * 2 + 16,
+    slotCandidateSpacing: Number.isFinite(config.slotCandidateSpacing) && config.slotCandidateSpacing > 0
+      ? config.slotCandidateSpacing
+      : Math.max(18, (Number.isFinite(config.slotRadius) && config.slotRadius > 0 ? config.slotRadius : DEFAULTS.slotRadius * width / DEFAULTS.width) * 0.38),
+    minimumAlongPathDistance: Number.isFinite(config.minimumAlongPathDistance) && config.minimumAlongPathDistance >= 0
+      ? config.minimumAlongPathDistance
+      : 64 * width / DEFAULTS.width,
+    forbiddenZones: Array.isArray(config.forbiddenZones) ? config.forbiddenZones : [],
     sampleSpacing,
     minimumRadius: pathWidth * DEFAULTS.minimumRadiusFactor,
     minimumSegmentSeparation: pathWidth * DEFAULTS.minimumSegmentSeparationFactor,
@@ -305,6 +341,30 @@ function pointAtDistance(points, lengths, target) {
   return lerpPoint(points[startIndex], points[endIndex], clamp(progress, 0, 1));
 }
 
+function pathFrameAt(path, target) {
+  const bounded = clamp(target, 0, path.totalLength);
+  let low = 0;
+  let high = path.cumLen.length - 1;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (path.cumLen[middle] < bounded) low = middle + 1;
+    else high = middle;
+  }
+  const endIndex = Math.max(1, low);
+  const startIndex = endIndex - 1;
+  const start = path.points[startIndex];
+  const end = path.points[endIndex];
+  const segmentLength = path.cumLen[endIndex] - path.cumLen[startIndex];
+  const progress = segmentLength > 0 ? (bounded - path.cumLen[startIndex]) / segmentLength : 0;
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const tangentLength = Math.hypot(dx, dy) || 1;
+  return {
+    point: lerpPoint(start, end, clamp(progress, 0, 1)),
+    tangent: { x: dx / tangentLength, y: dy / tangentLength }
+  };
+}
+
 function resampleByArcLength(points, spacing) {
   const lengths = cumulativeLengths(points);
   const total = lengths.at(-1);
@@ -342,6 +402,310 @@ function pointSegmentDistance(point, start, end) {
   if (lengthSquared === 0) return distance(point, start);
   const projection = clamp(((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared, 0, 1);
   return Math.hypot(point.x - (start.x + projection * dx), point.y - (start.y + projection * dy));
+}
+
+function distanceToPath(point, path) {
+  let minimum = Number.POSITIVE_INFINITY;
+  for (let index = 0; index < path.points.length - 1; index += 1) {
+    minimum = Math.min(minimum, pointSegmentDistance(point, path.points[index], path.points[index + 1]));
+  }
+  return minimum;
+}
+
+function circleCoverageOnSegment(center, radius, start, end, startDistance, endDistance) {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const fx = start.x - center.x;
+  const fy = start.y - center.y;
+  const a = dx * dx + dy * dy;
+  if (a < 1e-10) return fx * fx + fy * fy <= radius * radius ? [startDistance, endDistance] : null;
+  const b = 2 * (fx * dx + fy * dy);
+  const c = fx * fx + fy * fy - radius * radius;
+  const discriminant = b * b - 4 * a * c;
+  if (discriminant < 0) return c <= 0 ? [startDistance, endDistance] : null;
+  const root = Math.sqrt(Math.max(0, discriminant));
+  const first = (-b - root) / (2 * a);
+  const second = (-b + root) / (2 * a);
+  const low = Math.max(0, Math.min(first, second));
+  const high = Math.min(1, Math.max(first, second));
+  if (low > high) return null;
+  const segmentLength = endDistance - startDistance;
+  return [startDistance + low * segmentLength, startDistance + high * segmentLength];
+}
+
+function mergeIntervals(intervals) {
+  const sorted = intervals.filter((interval) => interval[1] - interval[0] > 1e-4)
+    .sort((a, b) => a[0] - b[0]);
+  const merged = [];
+  for (const interval of sorted) {
+    const previous = merged.at(-1);
+    if (previous && interval[0] <= previous[1] + 0.01) previous[1] = Math.max(previous[1], interval[1]);
+    else merged.push([...interval]);
+  }
+  return merged;
+}
+
+function turnAngleCoveredByIntervals(path, intervals) {
+  let total = 0;
+  for (let index = 1; index < path.points.length - 1; index += 1) {
+    const along = path.cumLen[index];
+    if (!intervals.some(([start, end]) => along >= start && along <= end)) continue;
+    const previous = path.points[index - 1];
+    const current = path.points[index];
+    const next = path.points[index + 1];
+    const before = Math.atan2(current.y - previous.y, current.x - previous.x);
+    const after = Math.atan2(next.y - current.y, next.x - current.x);
+    let delta = after - before;
+    while (delta > Math.PI) delta -= Math.PI * 2;
+    while (delta < -Math.PI) delta += Math.PI * 2;
+    total += Math.abs(delta);
+  }
+  return total;
+}
+
+function coverageForSlot(slot, path, config) {
+  const intervals = [];
+  for (let index = 0; index < path.points.length - 1; index += 1) {
+    const interval = circleCoverageOnSegment(
+      slot,
+      config.towerRange,
+      path.points[index],
+      path.points[index + 1],
+      path.cumLen[index],
+      path.cumLen[index + 1]
+    );
+    if (interval) intervals.push(interval);
+  }
+  const merged = mergeIntervals(intervals);
+  const coveredLength = merged.reduce((sum, [start, end]) => sum + end - start, 0);
+  const curveBonus = turnAngleCoveredByIntervals(path, merged) * config.towerRange * 0.045;
+  const multiLaneBonus = Math.min(config.towerRange * 0.45, Math.max(0, merged.length - 1) * config.towerRange * 0.18);
+  const value = rounded(coveredLength + curveBonus + multiLaneBonus);
+  return {
+    intervals: merged.map(([start, end]) => [rounded(start), rounded(end)]),
+    value
+  };
+}
+
+function rotatedPoint(point, config) {
+  return { x: rounded(config.width - point.x), y: rounded(config.height - point.y) };
+}
+
+function intersectsForbiddenZone(point, config) {
+  return config.forbiddenZones.some((zone) => {
+    if (![zone?.x, zone?.y, zone?.width, zone?.height].every(Number.isFinite)) return false;
+    const closestX = clamp(point.x, zone.x, zone.x + zone.width);
+    const closestY = clamp(point.y, zone.y, zone.y + zone.height);
+    return distance(point, { x: closestX, y: closestY }) < config.slotRadius;
+  });
+}
+
+function isValidSlotPoint(point, owner, path, config) {
+  const radius = config.slotRadius;
+  if (point.x < radius || point.x > config.width - radius ||
+      point.y < config.slotHalfHeight || point.y > config.height - config.slotHalfHeight) return false;
+  if (intersectsForbiddenZone(point, config)) return false;
+
+  const centerY = config.height / 2;
+  const midfieldBand = config.height * 0.035;
+  const wallMargin = config.height * 0.035;
+  const wallY = owner === "player1" ? config.height * 0.86 : config.height * 0.14;
+  const castleY = owner === "player1" ? config.height * 0.932 : config.height * 0.068;
+  if (owner === "player1") {
+    if (point.y - config.slotHalfHeight < centerY + midfieldBand) return false;
+    if (point.y + config.slotHalfHeight > wallY - wallMargin) return false;
+  } else {
+    if (point.y + config.slotHalfHeight > centerY - midfieldBand) return false;
+    if (point.y - config.slotHalfHeight < wallY + wallMargin) return false;
+  }
+  if (Math.abs(point.y - wallY) < config.slotHalfHeight + path.width * 0.5) return false;
+  if (distance(point, { x: config.width / 2, y: castleY }) < radius + config.width * 0.11) return false;
+
+  const roadDistance = distanceToPath(point, path);
+  const minimumRoadDistance = path.width * 0.5 + radius + config.slotGap;
+  const maximumRoadDistance = minimumRoadDistance + config.invisibleRoadExtra;
+  return roadDistance >= minimumRoadDistance - 0.75 && roadDistance <= maximumRoadDistance + 0.75;
+}
+
+function slotsForPlayerOne(path, random, config) {
+  const candidates = [];
+  const halfLength = path.totalLength / 2;
+  const requiredDistance = path.width * 0.5 + config.slotRadius + config.slotGap;
+  const maximumOffset = requiredDistance + config.invisibleRoadExtra;
+  const minimumY = config.height / 2 + config.height * 0.035 + config.slotHalfHeight;
+  const maximumY = config.height * 0.86 - config.height * 0.035 - config.slotHalfHeight;
+
+  for (let along = 0; along < halfLength; along += config.slotCandidateSpacing) {
+    const { point, tangent } = pathFrameAt(path, along);
+    if (point.y < minimumY || point.y > maximumY) continue;
+    for (const side of [-1, 1]) {
+      const offset = requiredDistance + random() * config.invisibleRoadExtra;
+      const candidate = {
+        x: rounded(point.x - tangent.y * offset * side),
+        y: rounded(point.y + tangent.x * offset * side),
+        along,
+        side,
+        tieBreak: random()
+      };
+      if (!isValidSlotPoint(candidate, "player1", path, config)) continue;
+      const coverage = coverageForSlot(candidate, path, config);
+      if (coverage.intervals.length === 0 || coverage.value <= 0) continue;
+      candidates.push({ ...candidate, ...coverage });
+    }
+  }
+
+  if (candidates.length < config.slotsPerPlayer) return null;
+  const selected = [];
+  const minAlong = Math.min(config.minimumAlongPathDistance, halfLength / (config.slotsPerPlayer + 1));
+  const eligibleStart = Math.min(...candidates.map((candidate) => candidate.along));
+  const eligibleEnd = Math.max(...candidates.map((candidate) => candidate.along));
+  const eligibleLength = Math.max(1, eligibleEnd - eligibleStart);
+  const sectorCounts = Array(config.slotsPerPlayer).fill(0);
+  const bestValue = Math.max(...candidates.map((candidate) => candidate.value));
+
+  while (selected.length < config.slotsPerPlayer) {
+    let best = null;
+    let bestUtility = Number.NEGATIVE_INFINITY;
+    for (const candidate of candidates) {
+      if (selected.some((other) => Math.abs(candidate.along - other.along) < minAlong)) continue;
+      const pair = [candidate, rotatedPoint(candidate, config)];
+      const existing = selected.flatMap((other) => [other, rotatedPoint(other, config)]);
+      if (pair.some((point) => existing.some((other) => distance(point, other) < config.minimumSlotSeparation))) continue;
+      if (distance(pair[0], pair[1]) < config.minimumSlotSeparation) continue;
+
+      const progress = (candidate.along - eligibleStart) / eligibleLength;
+      const sector = Math.min(config.slotsPerPlayer - 1, Math.floor(progress * config.slotsPerPlayer));
+      const sectorBonus = sectorCounts[sector] === 0 ? bestValue * 0.18 : -bestValue * 0.32 * sectorCounts[sector];
+      const nearestProgressGap = selected.length === 0
+        ? 1
+        : Math.min(...selected.map((other) => Math.abs(candidate.along - other.along))) / Math.max(eligibleLength, 1);
+      const utility = candidate.value + sectorBonus + nearestProgressGap * bestValue * 0.2 + candidate.tieBreak * 1e-4;
+      if (utility > bestUtility) {
+        best = { ...candidate, sector };
+        bestUtility = utility;
+      }
+    }
+    if (!best) return null;
+    selected.push(best);
+    sectorCounts[best.sector] += 1;
+  }
+
+  selected.sort((a, b) => a.along - b.along || a.x - b.x);
+  const premiumIndexes = new Set(selected.map((slot, index) => ({ index, value: slot.value }))
+    .sort((a, b) => b.value - a.value || a.index - b.index)
+    .slice(0, config.premiumSlotsPerPlayer)
+    .map((entry) => entry.index));
+
+  return selected.map((slot, index) => ({
+    id: `p1-${String(index + 1).padStart(2, "0")}`,
+    x: slot.x,
+    y: slot.y,
+    owner: "player1",
+    tier: premiumIndexes.has(index) ? "premium" : "normal",
+    value: slot.value,
+    coverage: slot.intervals
+  }));
+}
+
+function mirrorPlayerSlots(playerOneSlots, path, config) {
+  return playerOneSlots.map((slot, index) => ({
+    id: `p2-${String(index + 1).padStart(2, "0")}`,
+    ...rotatedPoint(slot, config),
+    owner: "player2",
+    tier: slot.tier,
+    value: slot.value,
+    coverage: slot.coverage
+      .map(([start, end]) => [rounded(path.totalLength - end), rounded(path.totalLength - start)])
+      .sort((a, b) => a[0] - b[0])
+  }));
+}
+
+function generateTowerSlots(path, random, config) {
+  const playerOne = slotsForPlayerOne(path, random, config);
+  if (!playerOne) return null;
+  const playerTwo = mirrorPlayerSlots(playerOne, path, config);
+  return [...playerOne, ...playerTwo];
+}
+
+export function inspectSlots(slots, path, configInput = {}) {
+  const config = resolvedConfig(configInput);
+  const issues = [];
+  if (!Array.isArray(slots) || slots.length !== config.slotsPerPlayer * 2) {
+    return { valid: false, issues: ["número de slots incorrecto"], metrics: null };
+  }
+  const playerOne = slots.filter((slot) => slot.owner === "player1");
+  const playerTwo = slots.filter((slot) => slot.owner === "player2");
+  if (playerOne.length !== config.slotsPerPlayer || playerTwo.length !== config.slotsPerPlayer) {
+    issues.push("los slots no están repartidos entre los dos jugadores");
+  }
+  for (const slot of slots) {
+    if (![slot.x, slot.y, slot.value].every(Number.isFinite) || slot.value <= 0) {
+      issues.push(`slot ${slot.id ?? "sin id"} con valores inválidos`);
+      continue;
+    }
+    if (!Array.isArray(slot.coverage) || slot.coverage.length === 0) {
+      issues.push(`slot ${slot.id} sin cobertura`);
+      continue;
+    }
+    if (!['normal', 'premium'].includes(slot.tier)) issues.push(`slot ${slot.id} con tier inválido`);
+    if (slot.owner !== 'player1' && slot.owner !== 'player2') issues.push(`slot ${slot.id} sin propietario válido`);
+    if (slot.owner && !isValidSlotPoint(slot, slot.owner, path, config)) {
+      issues.push(`slot ${slot.id} está fuera de una zona de construcción válida`);
+    }
+    for (const [start, end] of slot.coverage) {
+      if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end > path.totalLength || end <= start) {
+        issues.push(`slot ${slot.id} con intervalo de cobertura inválido`);
+      }
+    }
+    const expectedCoverage = coverageForSlot(slot, path, config);
+    const sameIntervals = slot.coverage.length === expectedCoverage.intervals.length &&
+      slot.coverage.every((interval, intervalIndex) =>
+        Math.abs(interval[0] - expectedCoverage.intervals[intervalIndex][0]) <= 0.01 &&
+        Math.abs(interval[1] - expectedCoverage.intervals[intervalIndex][1]) <= 0.01
+      );
+    if (Math.abs(slot.value - expectedCoverage.value) > 0.02 || !sameIntervals) {
+      issues.push(`slot ${slot.id} no coincide con su cobertura calculada`);
+    }
+  }
+
+  for (let index = 0; index < Math.min(playerOne.length, playerTwo.length); index += 1) {
+    const first = playerOne[index];
+    const second = playerTwo[index];
+    const mirrored = rotatedPoint(first, config);
+    if (distance(second, mirrored) > 0.002 || first.value !== second.value || first.tier !== second.tier) {
+      issues.push(`slot ${first.id} y su reflejo no coinciden`);
+    }
+    const mirroredCoverage = first.coverage
+      .map(([start, end]) => [rounded(path.totalLength - end), rounded(path.totalLength - start)])
+      .sort((a, b) => a[0] - b[0]);
+    if (JSON.stringify(second.coverage) !== JSON.stringify(mirroredCoverage)) {
+      issues.push(`cobertura de ${first.id} y su reflejo no coincide`);
+    }
+  }
+
+  for (let first = 0; first < slots.length; first += 1) {
+    for (let second = first + 1; second < slots.length; second += 1) {
+      if (distance(slots[first], slots[second]) < config.minimumSlotSeparation) {
+        issues.push(`los slots ${slots[first].id} y ${slots[second].id} se solapan`);
+      }
+    }
+  }
+
+  const premiumCounts = ["player1", "player2"].map((owner) =>
+    slots.filter((slot) => slot.owner === owner && slot.tier === "premium").length
+  );
+  if (premiumCounts.some((count) => count < 1 || count > 2)) issues.push("cada jugador debe tener 1 o 2 slots premium");
+  return {
+    valid: issues.length === 0,
+    issues,
+    metrics: {
+      countPerPlayer: [playerOne.length, playerTwo.length],
+      premiumPerPlayer: premiumCounts,
+      minimumSeparation: slots.length > 1
+        ? rounded(Math.min(...slots.flatMap((slot, index) => slots.slice(index + 1).map((other) => distance(slot, other)))))
+        : null
+    }
+  };
 }
 
 function orientation(a, b, c) {
@@ -531,25 +895,36 @@ function scorePath(metrics, config) {
   return Math.round((lengthFit * 0.35 + widthFit * 0.20 + radiusFit * 0.20 + separationFit * 0.15 + curveFit * 0.10) * 100);
 }
 
-function candidateMap(seed, archetype, random, config, noiseFraction) {
+function candidateMap(seed, archetype, random, config, noiseFraction, slotSeed = hashSeed(`${seed}|${archetype}|slots`)) {
   const path = buildFullPath(archetype, random, config, noiseFraction);
   const inspected = inspectPath(path, config);
+  const slots = inspected.valid
+    ? generateTowerSlots(path, mulberry32(mixSeed(slotSeed ^ 0xa511e9b3)), config)
+    : null;
+  const inspectedSlots = slots ? inspectSlots(slots, path, config) : {
+    valid: false,
+    issues: ["no se pudieron colocar todos los slots"],
+    metrics: null
+  };
   return {
     map: {
       width: config.width,
       height: config.height,
       path,
-      slots: [],
+      slots: slots ?? [],
       meta: {
         seed: String(seed),
         archetype,
         score: scorePath(inspected.metrics ?? { totalLength: 0, widthUsage: 0, minimumRadius: 0, minimumSeparation: 0 }, config),
         metrics: inspected.metrics,
+        slotMetrics: inspectedSlots.metrics,
+        towerRange: rounded(config.towerRange),
+        slotRadius: rounded(config.slotRadius),
         attempts: 0,
         usedFallback: false
       }
     },
-    inspected
+    inspected: { ...inspected, valid: inspected.valid && inspectedSlots.valid, slotIssues: inspectedSlots.issues }
   };
 }
 
@@ -557,7 +932,14 @@ export function getFallbackMaps(configInput = {}) {
   const config = resolvedConfig(configInput);
   return FALLBACK_SEEDS.map((seed, index) => {
     const random = mulberry32(hashSeed(seed));
-    const { map } = candidateMap(seed, MAP_ARCHETYPES[index], random, config, 0);
+    const { map } = candidateMap(seed, MAP_ARCHETYPES[index], random, config, 0, hashSeed(`${seed}|slot-stream`));
+    for (let attempt = 0; attempt < 50 && !inspectSlots(map.slots, map.path, config).valid; attempt += 1) {
+      const slotSeed = mixSeed(hashSeed(`${seed}|slot-retry|${attempt}`));
+      const slots = generateTowerSlots(map.path, mulberry32(slotSeed), config);
+      if (!slots || !inspectSlots(slots, map.path, config).valid) continue;
+      map.slots = slots;
+      map.meta.slotMetrics = inspectSlots(slots, map.path, config).metrics;
+    }
     map.meta.usedFallback = true;
     map.meta.attempts = 0;
     return map;
@@ -573,14 +955,16 @@ export function generateMap(seed, configInput = {}) {
     const attemptSeed = mixSeed(initialSeed ^ Math.imul(attempt + 1, 0x9e3779b9));
     const random = mulberry32(attemptSeed);
     const archetype = MAP_ARCHETYPES[Math.floor(random() * MAP_ARCHETYPES.length)];
-    const { map, inspected } = candidateMap(seedText, archetype, random, config, config.noiseFraction);
+    const { map, inspected } = candidateMap(seedText, archetype, random, config, config.noiseFraction, attemptSeed);
     if (inspected.valid) {
       map.meta.attempts = attempt + 1;
       return map;
     }
   }
 
-  const fallbackMaps = getFallbackMaps(config).filter((map) => inspectPath(map.path, config).valid);
+  const fallbackMaps = getFallbackMaps(config).filter((map) =>
+    inspectPath(map.path, config).valid && inspectSlots(map.slots, map.path, config).valid
+  );
   if (fallbackMaps.length === 0) {
     throw new Error("No se pudo generar un camino válido ni encontrar un respaldo válido.");
   }

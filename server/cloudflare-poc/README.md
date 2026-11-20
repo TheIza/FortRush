@@ -73,9 +73,11 @@ Pendiente: probar emparejamiento desde dos redes distintas y comprobar desconexi
 - Implementar reglas de partida y resultado en el servidor.
 - Mantener Firebase Spark y Workers Free; no seleccionar Workers Paid ni recursos de pago.
 
-## Generador de caminos v2 — paso a
+## Generador de mapa v2 — pasos a y b
 
-El módulo experimental `src/map-v2.mjs` genera únicamente el camino y todavía no sustituye a `generateSharedMap()` en `src/index.mjs`. Por eso, este cambio no modifica el mapa que reciben los jugadores online ni la simulación.
+El módulo experimental `src/map-v2.mjs` es una API pura y determinista: `generateMap(seed, config)` devuelve las dimensiones lógicas, el camino con longitudes acumuladas, los slots y métricas. El camino admite cinco arquetipos y el rival recibe la geometría rotada 180 grados. Cada jugador tiene siete plataformas; dos son premium. Cada slot incluye el valor y los intervalos de camino que quedan dentro del alcance de una torre.
+
+Este módulo todavía no sustituye a `generateSharedMap()` en `src/index.mjs`. Por eso, los mapas online y la simulación no cambian todavía. Tampoco modifica el servidor que está publicado en Cloudflare.
 
 Para revisar las formas y métricas en el navegador, desde esta carpeta ejecuta:
 
@@ -83,7 +85,7 @@ Para revisar las formas y métricas en el navegador, desde esta carpeta ejecuta:
 node debug-map-server.mjs
 ```
 
-Abre `http://127.0.0.1:4173/debug-map.html`. El servidor de previsualización escucha solo en el propio dispositivo; no despliega ni contacta Cloudflare. Detenlo con `Ctrl+C`.
+Abre `http://127.0.0.1:4173/debug-map.html`. La rejilla compara doce semillas, dibuja las plataformas por jugador y nivel, y muestra círculos de alcance. El servidor de previsualización escucha solo en el propio dispositivo; no despliega ni contacta Cloudflare. Detenlo con `Ctrl+C`.
 
 La prueba del módulo se ejecuta con:
 
@@ -91,9 +93,9 @@ La prueba del módulo se ejecuta con:
 node --test map-v2.test.mjs
 ```
 
-La suite del paso a recorre 1.000 semillas, comprueba validez y determinismo, verifica la simetría y la entrada vertical, y valida las cinco plantillas de respaldo. Los slots, su cobertura y la decoración se añadirán en los pasos siguientes.
+La suite recorre 1.000 semillas y comprueba determinismo, validez del camino y de los slots, separación, simetría, cobertura, cantidad de plataformas y cinco respaldos válidos. El score de 20 candidatos, la decoración y la integración con Worker y Android siguen pendientes.
 
 
 ## Pruebas del generador de mapas
 
-La suite verifica que una misma semilla produzca la misma geometría, que semillas distintas generen mapas variados, que los cinco respaldos sean válidos y que el generador rechace coordenadas o huecos incorrectos. Estas son pruebas automáticas locales; no sustituyen la comprobación visual en Android ni la prueba con dos redes.
+Estas son pruebas automáticas locales; no sustituyen la comprobación visual en Android ni la prueba con dos redes.
