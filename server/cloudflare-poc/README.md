@@ -2,7 +2,7 @@
 
 Este Worker es el backend activo de FortRush. Atiende el API de perfiles y apodos y el emparejamiento de prueba por WebSocket, usando un Durable Object para mantener la cola y la preparación de una partida de hasta dos jugadores. Verifica tokens de Firebase Authentication y comparte una geometría aleatoria generada por el Worker, idéntica para ambos jugadores.
 
-El generador curvo y la conexión con Android ya están implementados localmente, pero todavía no están desplegados: hasta publicar el cambio, el Worker activo seguirá enviando el mapa anterior.
+El generador curvo y la conexión con Android están implementados localmente, pero todavía no están desplegados: hasta publicar el cambio, el Worker activo seguirá enviando el mapa anterior. La construcción de torres también está añadida localmente al cliente y al Worker; necesita desplegarse y probarse en Android para confirmar el flujo completo.
 
 Todavía no es el servidor completo del juego: no ejecuta combate ni permite reanudar una partida tras perder la conexión. El generador v2 produce un camino curvo, continuo y simétrico mediante un giro de 180 grados, con siete huecos por jugador por defecto (configurable) y puertas centradas sobre el camino. La app dibuja dos muros de lado a lado con piezas repetidas y solapadas; el Worker envía geometría, no archivos de arte. El generador valida límites, cruces, separación del camino y huecos; evalúa 20 variantes por semilla y conserva cinco mapas de respaldo. La lógica de combate sigue pendiente.
 
@@ -26,7 +26,7 @@ El secreto se llama `FIREBASE_SERVICE_ACCOUNT_JSON`. Se configurará en Cloudfla
 
 La credencial de servidor ya está configurada en Cloudflare. La prueba autenticada desde Android confirmó que el perfil carga y que un jugador puede entrar en la app. Render ya no forma parte de la ruta activa; el servicio alojado en Render y su Blueprint todavía deben eliminarse desde sus paneles.
 
-El test de contrato simulado se ejecuta con `npm test` desde esta carpeta. Comprueba reserva inicial, duplicados, el plazo de siete días y conservación de campos; no sustituye una prueba contra Firestore real.
+La suite de contrato simulada se ejecuta con `npm test` desde esta carpeta. Incluye reserva de apodos y pruebas del mapa, la economía de partida y la validación de construcción; no sustituye una prueba contra Firestore real ni una prueba visual en dos dispositivos.
 
 ## Despliegue
 
@@ -115,7 +115,13 @@ La suite recorre 1.000 semillas y comprueba determinismo, caminos distintos para
 
 El Durable Object crea el mapa v2 cuando forma la pareja y guarda la geometría completa en la partida. `match.found` la envía para que los móviles preparen la vista y `game_start` vuelve a incluirla cuando empieza la partida. Se conservan las métricas y los intervalos de cobertura; no se envía decoración. Android valida el formato, normaliza las coordenadas, genera la decoración a partir de la semilla y muestra siete plataformas iguales por jugador. Solo los huecos propios responden al toque y pueden mostrar selección o alcance; los del rival son solo visuales. El cliente ignora campos desconocidos procedentes de formatos anteriores.
 
-El servidor todavía no simula el combate; esta integración solo cambia el mapa compartido y su representación. `GET /health` informa `mapGeneratorVersion: v2` cuando se despliegue este código. El código local no ha sido desplegado ni enviado con `git push`.
+El servidor todavía no simula el combate. La construcción local guarda torre y gasto en el estado del Durable Object y difunde la confirmación; no ataca ni ejecuta reglas de combate. `GET /health` informa `mapGeneratorVersion: v2` cuando se despliegue este código. El código local no ha sido desplegado ni enviado con `git push`.
+
+### Construcción de torres — pasos D y E
+
+El prototipo local muestra las cuatro cartas actuales; tocar una carta de torre permite seleccionar huecos propios libres y mantenerla pulsada permite arrastrar una miniatura. El servidor admite `arrow_tower` por 100 monedas y `cannon_tower` por 130, con 150 monedas al inicio, ingreso de 5 por segundo y cooldown 0. La app mantiene los huecos rivales visibles y no interactivos. El servidor identifica al jugador desde el socket autenticado, comprueba el saldo/propiedad/ocupación/fase y evita repetir una construcción aceptada con el mismo `actionId`. El saldo máximo todavía no está decidido; este prototipo no aplica un tope.
+
+Comprobado localmente el 22/11/2026: `npm test` pasó 29/29; `:app:compileDebugKotlin` y los tests Android `ArenaSlotPickingTest` y `ArenaTowerBuildRulesTest` pasaron. No se ha desplegado el Worker ni se ha comprobado el arrastre en un dispositivo real.
 
 Se añadió una prueba unitaria de lectura del payload v2. En esta sesión, `:app:compileDebugKotlin` pasó, pero la ejecución de tests Android no terminó: Javac recibió `AccessDeniedException` al leer un JAR de la caché Gradle, por lo que el test nuevo del parser sigue pendiente. Las pruebas de decoración del paso d sí pasaron anteriormente. La prueba visual con el Worker desplegado desde dos dispositivos y el despliegue siguen pendientes.
 

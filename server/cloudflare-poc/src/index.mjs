@@ -3,6 +3,12 @@ import { handleProfileApi, ProfileApiError } from "./profile-api.mjs";
 import { getNicknamePolicyMessage } from "../../src/nickname-policy.mjs";
 import { createSharedMap } from "./shared-map.mjs";
 
+export const MATCH_ECONOMY = Object.freeze({ startingCoins: 150, incomePerSecond: 5 });
+export const TOWER_CARDS = Object.freeze({
+  arrow_tower: Object.freeze({ cost: 100 }),
+  cannon_tower: Object.freeze({ cost: 130 })
+});
+
 const FIREBASE_JWKS = createRemoteJWKSet(
   new URL("https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com")
 );
@@ -72,7 +78,31 @@ export default {
 };
 
 function send(socket, type, data = {}) {
-  if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type, ...data }));
+  if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type, ...data }));
+}
+
+function configuredBuildCooldownMs(env) {
+  const value = Number(env?.TOWER_BUILD_COOLDOWN_MS ?? 0);
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+}
+
+function economySnapshot(match, player, nowMs) {
+  return {
+    startingCoins: MATCH_ECONOMY.startingCoins,
+    incomePerSecond: MATCH_ECONOMY.incomePerSecond,
+    startedAtServerMs: match.startedAtServerMs,
+    serverTimeMs: nowMs,
+    coinsSpent: player?.coinsSpent ?? 0
+  };
+}
+
+function coinsAvailable(match, player, nowMs) {
+  const elapsedWholeSeconds = Math.floor(Math.max(0, nowMs - match.startedAtServerMs) / 1_000);
+  return Math.max(0, MATCH_ECONOMY.startingCoins + elapsedWholeSeconds * MATCH_ECONOMY.incomePerSecond - (player.coinsSpent ?? 0));
+}
+
+function rejectBuild(socket, actionId, slotId, reason) {
+  send(socket, "action_rejected", { actionId, slotId, reason });
 }
 
 export class WebSocketProbe {
@@ -113,6 +143,7 @@ export class WebSocketProbe {
     if (payload.type === "queue.join") return this.joinQueue(socket, attachment, payload);
     if (payload.type === "queue.cancel") return this.cancelQueue(socket, attachment, payload);
     if (payload.type === "match.loaded") return this.markLoaded(socket, attachment, payload);
+    if (payload.type === "build_tower") return this.buildTower(socket, attachment, payload);
     send(socket, "error", { code: "UNKNOWN_MESSAGE", message: "Acción no reconocida." });
   }
 
@@ -180,8 +211,18 @@ export class WebSocketProbe {
     const match = {
       matchId: crypto.randomUUID(),
       phase: "LOADING",
-      players: players.map(({ uid, sequence }, index) => ({ uid, sequence, playerNumber: index + 1, loaded: false })),
-      map
+      players: players.map(({ uid, sequence }, index) => ({
+        uid,
+        sequence,
+        playerNumber: index + 1,
+        loaded: false,
+        coinsSpent: 0,
+        lastTowerBuiltAtMs: null,
+        processedActionIds: []
+      })),
+      map,
+      towers: [],
+      startedAtServerMs: null
     };
     console.log("match-map", {
       matchId: match.matchId,
@@ -249,8 +290,103 @@ export class WebSocketProbe {
       return;
     }
     match.phase = "IN_MATCH";
+    match.startedAtServerMs = Date.now();
+    match.towers = [];
+    match.players.forEach((player) => {
+      player.coinsSpent = 0;
+      player.lastTowerBuiltAtMs = null;
+      player.processedActionIds = [];
+    });
     await this.ctx.storage.put("match", match);
-    this.broadcast("game_start", { matchId: match.matchId, map: match.map });
+    this.ctx.getWebSockets().forEach((socket) => {
+      const attachment = socket.deserializeAttachment?.() ?? {};
+      const player = match.players.find((entry) => entry.uid === attachment.uid);
+      send(socket, "game_start", {
+        matchId: match.matchId,
+        map: match.map,
+        economy: economySnapshot(match, player, match.startedAtServerMs)
+      });
+    });
+  }
+
+  async buildTower(socket, attachment, payload) {
+    const actionId = typeof payload.actionId === "string" ? payload.actionId : "";
+    const slotId = typeof payload.slotId === "string" ? payload.slotId : "";
+    if (!actionId || actionId.length > 80) {
+      rejectBuild(socket, actionId, slotId, "INVALID_ACTION_ID");
+      return;
+    }
+
+    const match = await this.ctx.storage.get("match");
+    const player = match?.players?.find((entry) =>
+      entry.uid === attachment.uid && entry.playerNumber === attachment.playerNumber
+    );
+    if (!match || match.matchId !== attachment.matchId || !player ||
+        match.phase !== "IN_MATCH" || !Number.isFinite(match.startedAtServerMs)) {
+      rejectBuild(socket, actionId, slotId, "INVALID_STATE");
+      return;
+    }
+
+    // Successful action IDs are stored with the accepted state. A duplicate never spends again.
+    if ((player.processedActionIds ?? []).includes(actionId)) return;
+
+    const slot = match.map?.slots?.find((entry) => entry.id === slotId);
+    if (!slot) {
+      rejectBuild(socket, actionId, slotId, "UNKNOWN_SLOT");
+      return;
+    }
+    const ownSlotOwner = player.playerNumber === 1 ? "player1" : "player2";
+    if (slot.owner !== ownSlotOwner) {
+      rejectBuild(socket, actionId, slotId, "NOT_YOUR_SLOT");
+      return;
+    }
+    if ((match.towers ?? []).some((tower) => tower.slotId === slotId)) {
+      rejectBuild(socket, actionId, slotId, "SLOT_OCCUPIED");
+      return;
+    }
+    const card = typeof payload.card === "string" ? payload.card : "";
+    const towerDefinition = Object.hasOwn(TOWER_CARDS, card) ? TOWER_CARDS[card] : null;
+    if (!towerDefinition) {
+      rejectBuild(socket, actionId, slotId, "NOT_A_TOWER_CARD");
+      return;
+    }
+
+    const nowMs = Date.now();
+    const cooldownMs = configuredBuildCooldownMs(this.env);
+    if (cooldownMs > 0 && Number.isFinite(player.lastTowerBuiltAtMs) &&
+        nowMs - player.lastTowerBuiltAtMs < cooldownMs) {
+      rejectBuild(socket, actionId, slotId, "ON_COOLDOWN");
+      return;
+    }
+    if (coinsAvailable(match, player, nowMs) < towerDefinition.cost) {
+      rejectBuild(socket, actionId, slotId, "NOT_ENOUGH_COINS");
+      return;
+    }
+
+    const tower = {
+      slotId,
+      ownerPlayerNumber: player.playerNumber,
+      card,
+      cost: towerDefinition.cost,
+      placedAtServerMs: nowMs
+    };
+    player.coinsSpent += towerDefinition.cost;
+    player.lastTowerBuiltAtMs = nowMs;
+    player.processedActionIds = [...(player.processedActionIds ?? []), actionId].slice(-32);
+    match.towers = [...(match.towers ?? []), tower];
+    await this.ctx.storage.put("match", match);
+
+    const socketsByUid = new Map(this.ctx.getWebSockets().map((candidate) => [candidate.deserializeAttachment()?.uid, candidate]));
+    for (const recipient of match.players) {
+      const recipientSocket = socketsByUid.get(recipient.uid);
+      send(recipientSocket, "tower_built", {
+        actionId,
+        slotId,
+        ownerPlayerNumber: player.playerNumber,
+        card,
+        economy: economySnapshot(match, recipient, nowMs)
+      });
+    }
   }
 
   async webSocketClose(socket) {
