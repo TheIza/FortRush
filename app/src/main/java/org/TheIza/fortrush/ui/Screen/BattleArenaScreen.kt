@@ -79,6 +79,8 @@ import org.TheIza.fortrush.data.matchmaking.MatchTowerCard
 
 enum class ArenaTowerKind { ARROW, CANNON }
 
+private const val ARENA_TOWER_SIZE_FRACTION = 0.17f
+
 data class ArenaTowerPlacement(
     val ownerPlayerNumber: Int,
     val slotIndex: Int,
@@ -887,7 +889,12 @@ private fun ArenaMapCanvas(
                 ArenaTowerKind.ARROW -> if (tower.ownerPlayerNumber == 1) blueArrow else redArrow
                 ArenaTowerKind.CANNON -> if (tower.ownerPlayerNumber == 1) blueCannon else redCannon
             }
-            drawCenteredPainter(painter, oriented(slot), boardWidth * 0.23f, boardWidth * 0.23f)
+            drawCenteredPainter(
+                painter,
+                oriented(slot),
+                boardWidth * ARENA_TOWER_SIZE_FRACTION,
+                boardWidth * ARENA_TOWER_SIZE_FRACTION
+            )
         }
     }
 }
