@@ -120,6 +120,7 @@
             <dt>Separación mínima / requerida</dt><dd>${metrics.minimumSeparation ?? "∞"} / ${metrics.requiredSeparation}</dd>
             <dt>Huecos P1 / P2</dt><dd>${slotsValidation.metrics?.countPerPlayer.join(" / ") ?? "inválidos"}</dd>
             <dt>Separación entre huecos</dt><dd>${slotsValidation.metrics?.minimumSeparation ?? "∞"}</dd>
+            <dt>Margen al borde (mín. / requerido)</dt><dd>${slotsValidation.metrics?.minimumLateralEdgeClearance ?? "?"} / ${slotsValidation.metrics?.requiredLateralEdgeClearance ?? "?"}</dd>
             <dt>Equilibrio de valor</dt><dd>${map.meta.scoreBreakdown?.ownerValueDifferencePercent ?? "?"} %</dd>
             <dt>Varianza / CV del valor</dt><dd>${map.meta.scoreBreakdown?.slotValueVariance ?? "?"} / ${map.meta.scoreBreakdown?.slotValueCoefficientOfVariation ?? "?"}</dd>
             <dt>Puntos / intentos</dt><dd>${metrics.pointCount} / ${map.meta.attempts}</dd>

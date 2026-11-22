@@ -6,6 +6,7 @@ const pathHashes = new Set();
 const archetypeCounts = new Map();
 const lengths = [];
 const curveCounts = [];
+const edgeMarginsDpAt320 = [];
 let fallbackCount = 0;
 let failureCount = 0;
 
@@ -28,6 +29,7 @@ for (let index = 0; index < sampleSize; index += 1) {
     archetypeCounts.set(map.meta.archetype, (archetypeCounts.get(map.meta.archetype) ?? 0) + 1);
     lengths.push(map.path.totalLength);
     curveCounts.push(pathValidation.metrics.curveCount);
+    edgeMarginsDpAt320.push(slotValidation.metrics.minimumLateralEdgeClearance / map.width * 320);
     if (map.meta.usedFallback) fallbackCount += 1;
   } catch (error) {
     failureCount += 1;
@@ -41,12 +43,14 @@ const mean = (values) => values.length
 const format = (value) => Number.isFinite(value) ? value.toFixed(2) : "n/d";
 const distinctPercent = pathHashes.size / sampleSize * 100;
 const fallbackPercent = fallbackCount / sampleSize * 100;
+const minimumEdgeMarginDpAt320 = edgeMarginsDpAt320.length ? Math.min(...edgeMarginsDpAt320) : 0;
 const commonShapes = [...archetypeCounts.entries()]
   .filter(([, count]) => count / sampleSize * 100 > 5).length;
 const criteria = [
   ["Caminos distintos >= 99 %", distinctPercent >= 99],
   ["Al menos 4 formas con > 5 %", commonShapes >= 4],
-  ["Mapas de respaldo < 2 %", fallbackPercent < 2]
+  ["Mapas de respaldo < 2 %", fallbackPercent < 2],
+  ["Margen lateral >= 32 dp en un tablero de 320 dp", minimumEdgeMarginDpAt320 >= 32]
 ];
 
 console.log(`Estadísticas de mapa (${sampleSize} semillas)`);
@@ -57,6 +61,7 @@ for (const [archetype, count] of [...archetypeCounts.entries()].sort(([a], [b]) 
 }
 console.log(`Longitud del camino (unidades): min ${format(Math.min(...lengths))}, media ${format(mean(lengths))}, max ${format(Math.max(...lengths))}`);
 console.log(`Número de curvas: min ${Math.min(...curveCounts)}, media ${format(mean(curveCounts))}, max ${Math.max(...curveCounts)}`);
+console.log(`Margen lateral mínimo de los slots: ${format(minimumEdgeMarginDpAt320)} dp (tablero de 320 dp)`);
 console.log(`Mapas de respaldo: ${fallbackCount}/${sampleSize} (${format(fallbackPercent)} %)`);
 console.log(`Fallos: ${failureCount}`);
 console.log("Criterios:");

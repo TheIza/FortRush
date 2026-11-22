@@ -79,6 +79,8 @@ El módulo experimental `src/map-v2.mjs` ofrece la API determinista `generateMap
 
 El score pondera longitud, cantidad de curvas, apertura lateral, seguridad geométrica, cobertura, equilibrio y dispersión de valor entre plataformas. Cada jugador tiene 7 slots normales; cada uno incluye su valor geométrico y los intervalos de camino dentro del alcance de torre.
 
+Los slots dejan un margen lateral mínimo de 11 % del ancho lógico. En la prueba de un tablero de 320 dp, equivale a 35,2 dp como mínimo; el test exige 32 dp. La banda vertical disponible se calcula con una semialtura de slot del 2,7 % de la altura lógica, manteniendo la separación física mínima entre plataformas.
+
 El Worker y el lector Android ya están conectados localmente al formato v2. La publicación de Cloudflare sigue pendiente; el Worker en producción no cambia hasta que se haga un despliegue explícito.
 
 ### Decoración cosmética del cliente — paso d
@@ -95,7 +97,7 @@ node debug-map-server.mjs
 
 Abre `http://127.0.0.1:4173/debug-map.html`. La rejilla compara doce semillas, dibuja los slots coloreados por jugador y muestra los círculos de alcance y métricas del score. El servidor de previsualización escucha solo en el propio dispositivo; no despliega ni contacta Cloudflare. Detenlo con `Ctrl+C`.
 
-Para medir 1.000 semillas y revisar diversidad, formas, longitudes, curvas, respaldos y fallos:
+Para medir 1.000 semillas y revisar diversidad, formas, longitudes, curvas, respaldos, fallos y margen lateral de 32 dp:
 
 ```powershell
 npm run map:stats

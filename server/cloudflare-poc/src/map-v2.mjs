@@ -10,9 +10,9 @@ export const MAP_ARCHETYPES = Object.freeze([
 ]);
 
 const ARCHETYPE_SHAPES = Object.freeze({
-  "s-suave": { horizontalRun: 0.060, middleLane: 0.00 },
-  "doble-s": { horizontalRun: 0.085, middleLane: 0.12 },
-  "zigzag-diagonal": { horizontalRun: 0.045, middleLane: 0.22 },
+  "s-suave": { horizontalRun: 0.090, middleLane: 0.40 },
+  "doble-s": { horizontalRun: 0.100, middleLane: 0.50 },
+  "zigzag-diagonal": { horizontalRun: 0.060, middleLane: 0.60 },
   "horquilla-central": { horizontalRun: 0.115, middleLane: 0.08 },
   "gran-c": { horizontalRun: 0.120, middleLane: 0.04 }
 });
@@ -31,10 +31,11 @@ const DEFAULTS = Object.freeze({
   pathWidth: 80,
   slotsPerPlayer: 7,
   slotRadius: 40,
-  slotHalfHeightFraction: 0.04,
+  slotHalfHeightFraction: 0.027,
   slotGap: 12,
   invisibleRoadExtra: 25,
   towerRange: 300,
+  minimumLateralEdgeClearanceFraction: 0.11,
   sampleSpacing: 14,
   minimumRadiusFactor: 1.6,
   minimumSegmentSeparationFactor: 1.12,
@@ -83,6 +84,9 @@ function resolvedConfig(config = {}) {
     towerRange: Number.isFinite(config.towerRange) && config.towerRange > 0
       ? config.towerRange
       : DEFAULTS.towerRange * width / DEFAULTS.width,
+    minimumLateralEdgeClearance: Number.isFinite(config.minimumLateralEdgeClearance)
+      ? Math.max(0, config.minimumLateralEdgeClearance)
+      : width * DEFAULTS.minimumLateralEdgeClearanceFraction,
     minimumSlotSeparation: Number.isFinite(config.minimumSlotSeparation) && config.minimumSlotSeparation > 0
       ? config.minimumSlotSeparation
       : (Number.isFinite(config.slotRadius) && config.slotRadius > 0 ? config.slotRadius : DEFAULTS.slotRadius * width / DEFAULTS.width) * 2 + 16,
@@ -91,7 +95,7 @@ function resolvedConfig(config = {}) {
       : Math.max(18, (Number.isFinite(config.slotRadius) && config.slotRadius > 0 ? config.slotRadius : DEFAULTS.slotRadius * width / DEFAULTS.width) * 0.38),
     minimumAlongPathDistance: Number.isFinite(config.minimumAlongPathDistance) && config.minimumAlongPathDistance >= 0
       ? config.minimumAlongPathDistance
-      : 64 * width / DEFAULTS.width,
+      : 36 * width / DEFAULTS.width,
     forbiddenZones: Array.isArray(config.forbiddenZones) ? config.forbiddenZones : [],
     sampleSpacing,
     minimumRadius: pathWidth * DEFAULTS.minimumRadiusFactor,
@@ -502,7 +506,8 @@ function intersectsForbiddenZone(point, config) {
 
 function isValidSlotPoint(point, owner, path, config) {
   const radius = config.slotRadius;
-  if (point.x < radius || point.x > config.width - radius ||
+  const lateralEdgeClearance = Math.min(point.x - radius, config.width - radius - point.x);
+  if (lateralEdgeClearance < config.minimumLateralEdgeClearance ||
       point.y < config.slotHalfHeight || point.y > config.height - config.slotHalfHeight) return false;
   if (intersectsForbiddenZone(point, config)) return false;
 
@@ -538,13 +543,23 @@ function slotsForPlayerOne(path, random, config) {
   for (let along = 0; along < halfLength; along += config.slotCandidateSpacing) {
     const { point, tangent } = pathFrameAt(path, along);
     if (point.y < minimumY || point.y > maximumY) continue;
-    for (const side of [-1, 1]) {
+    const inwardSign = point.x <= config.width / 2 ? 1 : -1;
+    const directions = [
+      { x: tangent.y, y: -tangent.x, side: -1 },
+      { x: -tangent.y, y: tangent.x, side: 1 },
+      ...[-0.45, 0, 0.45].map((angle) => ({
+        x: inwardSign * Math.cos(angle),
+        y: Math.sin(angle),
+        side: 2 + angle
+      }))
+    ];
+    for (const direction of directions) {
       const offset = requiredDistance + random() * config.invisibleRoadExtra;
       const candidate = {
-        x: rounded(point.x - tangent.y * offset * side),
-        y: rounded(point.y + tangent.x * offset * side),
+        x: rounded(point.x + direction.x * offset),
+        y: rounded(point.y + direction.y * offset),
         along,
-        side,
+        side: direction.side,
         tieBreak: random()
       };
       if (!isValidSlotPoint(candidate, "player1", path, config)) continue;
@@ -628,8 +643,18 @@ export function inspectSlots(slots, path, configInput = {}) {
   }
   const playerOne = slots.filter((slot) => slot.owner === "player1");
   const playerTwo = slots.filter((slot) => slot.owner === "player2");
+  const minimumLateralEdgeClearance = slots.length > 0
+    ? Math.min(...slots.map((slot) => Math.min(
+      slot.x - config.slotRadius,
+      config.width - config.slotRadius - slot.x
+    )))
+    : null;
   if (playerOne.length !== config.slotsPerPlayer || playerTwo.length !== config.slotsPerPlayer) {
     issues.push("los slots no están repartidos entre los dos jugadores");
+  }
+  if (Number.isFinite(minimumLateralEdgeClearance) &&
+      minimumLateralEdgeClearance < config.minimumLateralEdgeClearance) {
+    issues.push("un slot está demasiado cerca de un borde lateral");
   }
   for (const slot of slots) {
     if (![slot.x, slot.y, slot.value].every(Number.isFinite) || slot.value <= 0) {
@@ -688,6 +713,10 @@ export function inspectSlots(slots, path, configInput = {}) {
     issues,
     metrics: {
       countPerPlayer: [playerOne.length, playerTwo.length],
+      minimumLateralEdgeClearance: Number.isFinite(minimumLateralEdgeClearance)
+        ? rounded(minimumLateralEdgeClearance)
+        : null,
+      requiredLateralEdgeClearance: rounded(config.minimumLateralEdgeClearance),
       minimumSeparation: slots.length > 1
         ? rounded(Math.min(...slots.flatMap((slot, index) => slots.slice(index + 1).map((other) => distance(slot, other)))))
         : null

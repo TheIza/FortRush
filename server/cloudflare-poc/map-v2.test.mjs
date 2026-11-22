@@ -68,6 +68,8 @@ test("1.000 semillas producen caminos válidos y siete slots equilibrados por ju
     assert.equal(slotValidation.valid, true, `${map.meta.seed}: ${slotValidation.issues.join(", ")}`);
     assert.equal(map.slots.length, 14);
     assert.deepEqual(slotValidation.metrics.countPerPlayer, [7, 7]);
+    const edgeMarginAt320Dp = slotValidation.metrics.minimumLateralEdgeClearance / map.width * 320;
+    assert.ok(edgeMarginAt320Dp >= 32, `${map.meta.seed}: hueco a ${edgeMarginAt320Dp.toFixed(2)} dp del borde`);
     assert.ok(map.path.totalLength >= 1800 * 1.25);
     assert.ok(map.path.totalLength <= 1800 * 3.0);
     assert.ok(pathValidation.metrics.widthUsage >= 0.70);
