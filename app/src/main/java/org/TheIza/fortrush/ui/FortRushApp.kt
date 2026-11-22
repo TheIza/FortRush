@@ -229,7 +229,47 @@ fun FortRushApp(userId: String, onSignOut: () -> Unit = {}) {
     }
 
     fun requestTowerBuild(card: MatchTowerCard, slotId: String): Boolean {
-        if (localBotDebug || matchmakingStage != MatchmakingStage.STARTED) return false
+        if (matchmakingStage != MatchmakingStage.STARTED) return false
+        if (localBotDebug) {
+            val map = sharedMap ?: return false
+            val metadata = map.slotMetadata.firstOrNull { it.id == slotId }
+            val slotOwner = metadata?.ownerPlayerNumber ?: when {
+                slotId.startsWith("p1-") || slotId.startsWith("player1-") -> 1
+                slotId.startsWith("p2-") || slotId.startsWith("player2-") -> 2
+                else -> null
+            }
+            val slotIndex = metadata?.slotIndex ?: slotId.substringAfterLast('-').toIntOrNull()
+            val slots = when (slotOwner) {
+                1 -> map.player1Slots
+                2 -> map.player2Slots
+                else -> return false
+            }
+            if (slotOwner != opponentNumber || slotIndex == null || slotIndex !in slots.indices ||
+                towerPlacements.any { it.slotId == slotId }) return false
+
+            val economy = matchEconomy ?: return false
+            val now = System.currentTimeMillis()
+            val elapsedSinceSnapshot = (now - economy.serverTimeMs).coerceAtLeast(0L)
+            val availableCoins = economy.coinsAfterElapsed(elapsedSinceSnapshot)
+            if (availableCoins < card.cost) return false
+
+            val towerKind = when (card) {
+                MatchTowerCard.ARROW_TOWER -> ArenaTowerKind.ARROW
+                MatchTowerCard.CANNON_TOWER -> ArenaTowerKind.CANNON
+            }
+            towerPlacements = towerPlacements + ArenaTowerPlacement(
+                ownerPlayerNumber = slotOwner,
+                slotIndex = slotIndex,
+                kind = towerKind,
+                slotId = slotId
+            )
+            matchEconomy = economy.copy(
+                serverTimeMs = now,
+                coinsSpent = economy.coinsSpent + card.cost
+            )
+            towerBuildError = null
+            return true
+        }
         val actionId = matchmakingConnection?.buildTower(card, slotId) ?: return false
         pendingTowerActions = pendingTowerActions + (actionId to slotId)
         towerBuildError = null
@@ -341,7 +381,7 @@ fun FortRushApp(userId: String, onSignOut: () -> Unit = {}) {
                                 towerPlacements = towerPlacements,
                                 pendingSlotIds = pendingTowerActions.values.toSet(),
                                 buildError = towerBuildError,
-                                isMatchActive = matchmakingStage == MatchmakingStage.STARTED && !localBotDebug,
+                                isMatchActive = matchmakingStage == MatchmakingStage.STARTED,
                                 onBuildTower = ::requestTowerBuild,
                                 onClearBuildError = { towerBuildError = null },
                                 isDebugBotMode = localBotDebug,

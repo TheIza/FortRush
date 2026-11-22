@@ -63,7 +63,7 @@ Este listado es el criterio para revisar la primera arena. Las pruebas deben doc
 ## Modo local de prueba con bot
 
 - El botón **Probar arena con bot** abre una partida de muestra usando una sola cuenta.
-- La muestra crea una geometría local distinta al entrar; no entra en la cola, no contacta el Worker y no consume solicitudes de red. Es solo una ayuda visual para comprobar caminos y plataformas, no el generador oficial de las partidas online.
-- El nombre del rival indica que es una prueba visual. El bot todavía no despliega tropas ni combate, porque esas mecánicas no están implementadas.
+- La muestra crea una geometría local distinta al entrar; no entra en la cola, no contacta el Worker y no consume solicitudes de red. Permite comprobar el camino, las plataformas y colocar torres localmente con las cartas, usando la economía de prueba de la arena.
+- Las torres colocadas en esta prueba solo existen en el dispositivo: no se sincronizan con otro jugador y no forman parte del estado del servidor. El bot no despliega tropas ni combate; esta pantalla no verifica el combate ni el mapa oficial de las partidas online.
 - Este modo sirve para revisar variaciones visuales de la arena, los muros, las plataformas y las cartas. No verifica el mapa aleatorio del servidor, el emparejamiento ni el combate.
 - El botón **Jugar** mantiene el flujo de emparejamiento real entre dos jugadores.
