@@ -30,6 +30,8 @@ import org.TheIza.fortrush.data.matchmaking.MatchmakingConnection
 import org.TheIza.fortrush.data.matchmaking.MatchmakingEvent
 import org.TheIza.fortrush.data.matchmaking.MatchmakingRepository
 import org.TheIza.fortrush.data.matchmaking.MatchMap
+import org.TheIza.fortrush.data.matchmaking.MatchEconomySnapshot
+import org.TheIza.fortrush.data.matchmaking.MatchTowerCard
 import org.TheIza.fortrush.data.matchmaking.createDebugBotMap
 import org.TheIza.fortrush.ui.Screen.CardsScreen
 import org.TheIza.fortrush.ui.Screen.HomeScreen
@@ -37,6 +39,8 @@ import org.TheIza.fortrush.ui.Screen.ProfileScreen
 import org.TheIza.fortrush.ui.Screen.MatchmakingScreen
 import org.TheIza.fortrush.ui.Screen.MatchmakingStage
 import org.TheIza.fortrush.ui.Screen.BattleArenaScreen
+import org.TheIza.fortrush.ui.Screen.ArenaTowerKind
+import org.TheIza.fortrush.ui.Screen.ArenaTowerPlacement
 import org.TheIza.fortrush.ui.components.FortRushBottomBar
 import org.TheIza.fortrush.ui.components.FortRushScreenBackground
 import org.TheIza.fortrush.ui.components.NicknameConnectionErrorDialog
@@ -45,6 +49,17 @@ import org.TheIza.fortrush.ui.theme.FortRushTheme
 import org.TheIza.fortrush.R
 
 enum class MainDestination { CARDS, HOME, PROFILE, MATCHMAKING }
+
+private fun buildTowerRejectionMessage(reason: String): String = when (reason) {
+    "UNKNOWN_SLOT" -> "Ese hueco no pertenece a este mapa."
+    "NOT_YOUR_SLOT" -> "Solo puedes construir en tus propios huecos."
+    "SLOT_OCCUPIED" -> "Ese hueco ya tiene una torre."
+    "NOT_A_TOWER_CARD" -> "Esa carta no permite construir una torre."
+    "NOT_ENOUGH_COINS" -> "No tienes monedas suficientes para esa torre."
+    "ON_COOLDOWN" -> "Espera antes de construir otra torre."
+    "INVALID_STATE" -> "No se puede construir durante la cuenta atrás o la muerte súbita."
+    else -> "El servidor rechazó la construcción ($reason)."
+}
 
 @Composable
 fun FortRushApp(userId: String, onSignOut: () -> Unit = {}) {
@@ -64,6 +79,10 @@ fun FortRushApp(userId: String, onSignOut: () -> Unit = {}) {
     var opponentNickname by remember { mutableStateOf<String?>(null) }
     var opponentNumber by remember { mutableIntStateOf(1) }
     var sharedMap by remember { mutableStateOf<MatchMap?>(null) }
+    var matchEconomy by remember { mutableStateOf<MatchEconomySnapshot?>(null) }
+    var towerPlacements by remember { mutableStateOf<List<ArenaTowerPlacement>>(emptyList()) }
+    var pendingTowerActions by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var towerBuildError by remember { mutableStateOf<String?>(null) }
     var localBotDebug by rememberSaveable(userId) { mutableStateOf(false) }
     var countdown by remember { mutableIntStateOf(0) }
     var matchmakingError by remember { mutableStateOf<String?>(null) }
@@ -79,6 +98,10 @@ fun FortRushApp(userId: String, onSignOut: () -> Unit = {}) {
         queuePosition = 0
         opponentNickname = null
         sharedMap = null
+        matchEconomy = null
+        towerPlacements = emptyList()
+        pendingTowerActions = emptyMap()
+        towerBuildError = null
         countdown = 0
         destination = MainDestination.MATCHMAKING
         matchmakingRepository.connect(
@@ -102,7 +125,38 @@ fun FortRushApp(userId: String, onSignOut: () -> Unit = {}) {
                         is MatchmakingEvent.Countdown -> { countdown = event.seconds; matchmakingStage = MatchmakingStage.COUNTDOWN }
                         is MatchmakingEvent.Started -> {
                             sharedMap = event.map
+                            matchEconomy = event.economy
+                            towerPlacements = emptyList()
+                            pendingTowerActions = emptyMap()
+                            towerBuildError = null
                             matchmakingStage = MatchmakingStage.STARTED
+                        }
+                        is MatchmakingEvent.TowerBuilt -> {
+                            val owner = event.ownerPlayerNumber
+                            val slotIndex = sharedMap?.slotMetadata
+                                ?.firstOrNull { it.id == event.slotId }
+                                ?.slotIndex
+                            val kind = when (event.card) {
+                                MatchTowerCard.ARROW_TOWER.wireId -> ArenaTowerKind.ARROW
+                                MatchTowerCard.CANNON_TOWER.wireId -> ArenaTowerKind.CANNON
+                                else -> null
+                            }
+                            pendingTowerActions = pendingTowerActions - event.actionId
+                            if (slotIndex == null || kind == null) {
+                                towerBuildError = "El servidor confirmó una torre en un hueco que no está en este mapa."
+                            } else {
+                                towerPlacements = towerPlacements
+                                    .filterNot { it.ownerPlayerNumber == owner && it.slotId == event.slotId } +
+                                    ArenaTowerPlacement(owner, slotIndex, kind, event.slotId)
+                                // The server snapshot is always for this connected recipient,
+                                // regardless of which player placed the tower.
+                                matchEconomy = event.economy
+                                towerBuildError = null
+                            }
+                        }
+                        is MatchmakingEvent.ActionRejected -> {
+                            pendingTowerActions = pendingTowerActions - event.actionId
+                            towerBuildError = buildTowerRejectionMessage(event.reason)
                         }
                         MatchmakingEvent.QueueCancelled -> {
                             matchmakingConnection?.close()
@@ -141,6 +195,11 @@ fun FortRushApp(userId: String, onSignOut: () -> Unit = {}) {
         opponentNickname = "BOT · PRUEBA VISUAL"
         opponentNumber = 1
         sharedMap = createDebugBotMap()
+        val now = System.currentTimeMillis()
+        matchEconomy = MatchEconomySnapshot(150, 5, now, now, 0)
+        towerPlacements = emptyList()
+        pendingTowerActions = emptyMap()
+        towerBuildError = null
         countdown = 0
         matchmakingError = null
         destination = MainDestination.MATCHMAKING
@@ -150,6 +209,10 @@ fun FortRushApp(userId: String, onSignOut: () -> Unit = {}) {
         localBotDebug = false
         matchmakingStage = MatchmakingStage.SEARCHING
         sharedMap = null
+        matchEconomy = null
+        towerPlacements = emptyList()
+        pendingTowerActions = emptyMap()
+        towerBuildError = null
         opponentNickname = null
         destination = MainDestination.HOME
     }
@@ -163,6 +226,14 @@ fun FortRushApp(userId: String, onSignOut: () -> Unit = {}) {
             // This UI has decoded and drawn the server geometry before acknowledging load.
             matchmakingConnection?.mapLoaded()
         }
+    }
+
+    fun requestTowerBuild(card: MatchTowerCard, slotId: String): Boolean {
+        if (localBotDebug || matchmakingStage != MatchmakingStage.STARTED) return false
+        val actionId = matchmakingConnection?.buildTower(card, slotId) ?: return false
+        pendingTowerActions = pendingTowerActions + (actionId to slotId)
+        towerBuildError = null
+        return true
     }
 
     LaunchedEffect(userId, refreshKey) {
@@ -266,6 +337,13 @@ fun FortRushApp(userId: String, onSignOut: () -> Unit = {}) {
                                 map = arenaMap,
                                 playerNumber = opponentNumber,
                                 opponentNickname = opponentNickname.orEmpty(),
+                                economy = matchEconomy,
+                                towerPlacements = towerPlacements,
+                                pendingSlotIds = pendingTowerActions.values.toSet(),
+                                buildError = towerBuildError,
+                                isMatchActive = matchmakingStage == MatchmakingStage.STARTED && !localBotDebug,
+                                onBuildTower = ::requestTowerBuild,
+                                onClearBuildError = { towerBuildError = null },
                                 isDebugBotMode = localBotDebug,
                                 onExitDebug = if (localBotDebug) ::exitDebugBotMatch else null
                             )

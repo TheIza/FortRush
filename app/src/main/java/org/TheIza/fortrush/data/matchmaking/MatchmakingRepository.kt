@@ -15,10 +15,50 @@ sealed interface MatchmakingEvent {
     data class Waiting(val position: Int) : MatchmakingEvent
     data class Found(val matchId: String, val opponentNickname: String, val playerNumber: Int, val map: MatchMap) : MatchmakingEvent
     data class Countdown(val seconds: Int) : MatchmakingEvent
-    data class Started(val matchId: String, val map: MatchMap) : MatchmakingEvent
+    data class Started(val matchId: String, val map: MatchMap, val economy: MatchEconomySnapshot) : MatchmakingEvent
+    data class TowerBuilt(
+        val actionId: String,
+        val slotId: String,
+        val ownerPlayerNumber: Int,
+        val card: String,
+        val economy: MatchEconomySnapshot
+    ) : MatchmakingEvent
+    data class ActionRejected(val actionId: String, val slotId: String, val reason: String) : MatchmakingEvent
     data object QueueCancelled : MatchmakingEvent
     data class Cancelled(val reason: String, val requeued: Boolean) : MatchmakingEvent
     data class Failure(val message: String) : MatchmakingEvent
+}
+
+enum class MatchTowerCard(val wireId: String, val cost: Int, val displayName: String) {
+    ARROW_TOWER("arrow_tower", 100, "Torre de flechas"),
+    CANNON_TOWER("cannon_tower", 130, "Torre de cañón")
+}
+
+data class MatchEconomySnapshot(
+    val startingCoins: Int,
+    val incomePerSecond: Int,
+    val startedAtServerMs: Long,
+    val serverTimeMs: Long,
+    val coinsSpent: Int
+) {
+    fun coinsAfterElapsed(elapsedRealtimeMs: Long): Int {
+        val elapsedAtSnapshot = (serverTimeMs - startedAtServerMs).coerceAtLeast(0L)
+        val elapsed = elapsedAtSnapshot + elapsedRealtimeMs.coerceAtLeast(0L)
+        val earned = elapsed / 1_000L * incomePerSecond
+        return (startingCoins.toLong() + earned - coinsSpent).coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
+    }
+}
+
+private fun JSONObject.economySnapshot(): MatchEconomySnapshot? {
+    val economy = optJSONObject("economy") ?: return null
+    val startingCoins = economy.optInt("startingCoins", -1)
+    val incomePerSecond = economy.optInt("incomePerSecond", -1)
+    val startedAtServerMs = economy.optLong("startedAtServerMs", -1L)
+    val serverTimeMs = economy.optLong("serverTimeMs", -1L)
+    val coinsSpent = economy.optInt("coinsSpent", -1)
+    if (startingCoins < 0 || incomePerSecond < 0 || startedAtServerMs < 0L ||
+        serverTimeMs < startedAtServerMs || coinsSpent < 0) return null
+    return MatchEconomySnapshot(startingCoins, incomePerSecond, startedAtServerMs, serverTimeMs, coinsSpent)
 }
 
 data class MatchPoint(val x: Float, val y: Float)
@@ -181,6 +221,19 @@ class MatchmakingConnection internal constructor(private val socket: WebSocket) 
     private fun send(type: String) {
         socket.send(JSONObject().put("type", type).put("requestId", UUID.randomUUID().toString()).toString())
     }
+
+    fun buildTower(card: MatchTowerCard, slotId: String): String? {
+        val actionId = UUID.randomUUID().toString()
+        val sent = socket.send(
+            JSONObject()
+                .put("type", "build_tower")
+                .put("card", card.wireId)
+                .put("slotId", slotId)
+                .put("actionId", actionId)
+                .toString()
+        )
+        return actionId.takeIf { sent }
+    }
 }
 
 class MatchmakingRepository {
@@ -241,18 +294,43 @@ class MatchmakingRepository {
                         "match.countdown" -> onEvent(MatchmakingEvent.Countdown(json.optInt("seconds")))
                         "game_start" -> {
                             val map = json.optJSONObject("map")?.let(::parseMap)
+                            val economy = json.economySnapshot()
                             if (map == null) onEvent(MatchmakingEvent.Failure("El servidor inició la partida con un mapa no válido."))
+                            else if (economy == null) onEvent(MatchmakingEvent.Failure("El servidor inició la partida sin los datos de monedas."))
                             else {
                                 gameStartReceived = true
                                 pendingMap = map
-                                onEvent(MatchmakingEvent.Started(json.optString("matchId"), map))
+                                onEvent(MatchmakingEvent.Started(json.optString("matchId"), map, economy))
                             }
                         }
                         "match.started" -> if (!gameStartReceived) {
                             val map = pendingMap
                             if (map == null) onEvent(MatchmakingEvent.Failure("El servidor inició la partida sin un mapa cargado."))
-                            else onEvent(MatchmakingEvent.Started(json.optString("matchId"), map))
+                            else {
+                                val now = System.currentTimeMillis()
+                                onEvent(MatchmakingEvent.Started(
+                                    json.optString("matchId"),
+                                    map,
+                                    MatchEconomySnapshot(150, 5, now, now, 0)
+                                ))
+                            }
                         }
+                        "tower_built" -> {
+                            val economy = json.economySnapshot()
+                            val owner = json.optInt("ownerPlayerNumber", 0)
+                            val actionId = json.optString("actionId")
+                            val slotId = json.optString("slotId")
+                            val card = json.optString("card")
+                            if (economy != null && owner in 1..2 && actionId.isNotBlank() && slotId.isNotBlank() &&
+                                MatchTowerCard.entries.any { it.wireId == card }) {
+                                onEvent(MatchmakingEvent.TowerBuilt(actionId, slotId, owner, card, economy))
+                            }
+                        }
+                        "action_rejected" -> onEvent(MatchmakingEvent.ActionRejected(
+                            actionId = json.optString("actionId"),
+                            slotId = json.optString("slotId"),
+                            reason = json.optString("reason", "UNKNOWN")
+                        ))
                         "match.cancelled" -> onEvent(MatchmakingEvent.Cancelled(json.optString("reason"), json.optBoolean("requeued")))
                         "error" -> if (json.optString("code") != "CANCEL_NOT_ALLOWED") {
                             onEvent(MatchmakingEvent.Failure(json.optString("message", "No se pudo buscar partida.")))
