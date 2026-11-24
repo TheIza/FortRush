@@ -2,7 +2,7 @@
 
 Este Worker es el backend activo de FortRush. Atiende el API de perfiles y apodos y el emparejamiento de prueba por WebSocket, usando un Durable Object para mantener la cola y la preparación de una partida de hasta dos jugadores. Verifica tokens de Firebase Authentication y comparte una geometría aleatoria generada por el Worker, idéntica para ambos jugadores.
 
-El generador curvo y la conexión con Android están implementados localmente, pero todavía no están desplegados: hasta publicar el cambio, el Worker activo seguirá enviando el mapa anterior. La construcción de torres también está añadida localmente al cliente y al Worker; necesita desplegarse y probarse en Android para confirmar el flujo completo.
+El mapa v2, la cola, la preparación de partida, la construcción de torres y el balance versionado están desplegados desde main en Cloudflare. El 24/11/2026, la usuaria confirmó Ready para el commit 901d2b0 y GET /health devolvió status ok, mapGeneratorVersion v2 y matchBalanceVersion fort-rush-2026-11-23.1. La configuración se probó con contratos automatizados; todavía falta probar la economía con el APK actualizado en una partida real.
 
 Todavía no es el servidor completo del juego: no ejecuta combate ni permite reanudar una partida tras perder la conexión. El generador v2 produce un camino curvo, continuo y simétrico mediante un giro de 180 grados, con siete huecos por jugador por defecto (configurable) y puertas centradas sobre el camino. La app dibuja dos muros de lado a lado con piezas repetidas y solapadas; el Worker envía geometría, no archivos de arte. El generador valida límites, cruces, separación del camino y huecos; evalúa 20 variantes por semilla y conserva cinco mapas de respaldo. La lógica de combate sigue pendiente.
 

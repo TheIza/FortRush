@@ -67,3 +67,22 @@ Responder a la revisión visual de la arena: muralla continua de borde a borde, 
 - `:app:assembleDebug --offline --no-daemon` compiló correctamente.
 - `:app:installDebug --offline --no-daemon` instaló la versión corregida en el emulador conectado.
 - Pendiente: pulsar **Partida con bot** en el emulador y confirmar que la arena abre sin cerrar la app.
+
+## 24/11/2026 — Cierre del balance en el proyecto principal
+
+### Objetivo y acciones
+- Integrar el commit de balance en el repositorio AndroidStudioProjects\FortRush y en main, que es la rama conectada a Cloudflare.
+- Centralizar la configuración por partida, alinear el radio de flechas y reflejarlo en game_start.
+- Corregir el test JVM para que org.json use una implementación real, no el stub de Android.
+- La usuaria confirmó con captura el despliegue Ready de main. GET /health devolvió status ok y matchBalanceVersion fort-rush-2026-11-23.1.
+
+### Comprobaciones reales
+- npm test: 33/33 pasaron.
+- Al principio, seis tests Kotlin fallaron porque Android devuelve “not mocked” para org.json.JSONObject; esto también afectaba a los tests existentes del parser del mapa.
+- Se añadió org.json:json:20260814 solo a testImplementation. :app:testDebugUnitTest terminó en BUILD SUCCESSFUL e incluyó compileDebugKotlin.
+- No se probó todavía una partida manual con el APK actualizado ni un combate real.
+
+### Resultado y siguiente paso
+- El commit 901d2b0 se empujó a main y la usuaria confirmó que Cloudflare lo mostró Ready.
+- El punto 05 queda verificado en contrato, servidor, parser Android y test JVM.
+- Siguiente tarea: punto 06, pruebas explícitas de dos identidades y rechazo de identidad duplicada. No se han modificado todavía las reglas de combate.
