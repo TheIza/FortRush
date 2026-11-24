@@ -10,8 +10,8 @@ Estado: prototipo de emparejamiento desplegado en Cloudflare. La usuaria confirm
 - Cancelar durante la búsqueda elimina al jugador de la cola y lo devuelve a Inicio. Si vuelve a pulsar Jugar, entra al final.
 - La partida se identifica y coordina desde un Cloudflare Worker con Durable Object. La identidad se obtiene verificando el ID token de Firebase Auth; nunca se acepta un UID enviado sin verificar.
 - Al encontrar pareja, los dos clientes reciben el ID de partida, el apodo provisional `Rival de prueba` y una única geometría de mapa generada por el servidor para previsualizarla y confirmar la carga. La consulta del apodo real sigue pendiente.
-- Ambos clientes deben confirmar que cargaron el mapa. Cuando ambos confirman, se muestra una cuenta atrás de 3, 2, 1 y luego comienza la partida. El timeout de carga de 30 segundos está pendiente de implementar; ahora mismo no se debe considerar disponible.
-- La recuperación de posición de cola si falla la carga está descrita como comportamiento previsto, pero sus timeout y casos de error requieren pruebas de integración.
+- Ambos clientes deben confirmar que cargaron el mapa. Cuando ambos confirman, se muestra una cuenta atrás de 3, 2, 1 y luego comienza la partida. El Worker ahora limita la carga a 30 segundos; si solo una persona confirmó, esta conserva su secuencia al volver a la cola y la persona que no cargó se retira.
+- La recuperación de posición si falla la carga está cubierta por pruebas unitarias del Worker; el comportamiento aún requiere prueba visual en dos dispositivos.
 - El control **Cancelar** desaparece al emparejarse y no hay controles de partida durante la cuenta atrás.
 - La sala de espera usa la estética medieval cartoon existente, muestra el apodo y ofrece un control accesible para cancelar.
 
@@ -39,7 +39,7 @@ Estado: prototipo de emparejamiento desplegado en Cloudflare. La usuaria confirm
 - El móvil envía primero su ID token de Firebase; el servidor lo verifica y asocia el socket al UID.
 - Mensajes implementados en el prototipo: `auth`, `queue.join`, `queue.cancel`, `queue.waiting`, `queue.cancelled`, `match.found`, `match.loaded`, `match.countdown`, `game_start`, `match.started` (del Worker anterior), `match.cancelled` y `error`.
 - Los comandos de cliente incluyen un `requestId`; `queue.join` y `match.loaded` son idempotentes por estado y las transiciones se validan en el servidor.
-- El Durable Object guarda el estado de cola y preparación. Aun así, una conexión WebSocket puede cortarse y no se ha implementado reconexión ni recuperación del jugador tras un reinicio.
+- El Durable Object guarda la cola y la preparación. Los dos primeros jugadores forman pareja; mientras esa partida está activa, los siguientes esperan en orden y pueden cancelar su propia espera. Cuando termina la preparación por timeout, el jugador que confirmó carga conserva su orden original. La reconexión durante una partida ya iniciada todavía no está implementada.
 - Al empezar, el evento `game_start` incluye el objeto de mapa completo. Android lo valida y usa esa geometría al entrar en la arena; el servidor no envía solo la semilla. El cliente también acepta `match.started` del Worker anterior mientras se despliega la actualización.
 
 ## Comprobaciones pendientes
@@ -49,10 +49,10 @@ Estado: prototipo de emparejamiento desplegado en Cloudflare. La usuaria confirm
 - Un UID no puede entrar varias veces en la cola ni formar dos partidas simultáneas.
 - Ambos reciben el mismo `matchId`, apodos y geometría de mapa.
 - Solo tras dos confirmaciones de carga empieza la cuenta atrás 3, 2, 1.
-- Un timeout de carga a los 30 segundos reencola solo al jugador que completó la carga y conserva su orden.
+- Un timeout de carga a los 30 segundos reencola solo al jugador que completó la carga y conserva su orden; cubierto por test unitario.
 - Reintentar mensajes no crea parejas duplicadas.
 - Desconectar/reiniciar servidor no deja al cliente en una sala ficticia; se informa y se puede buscar de nuevo.
-- El botón **Cancelar** no aparece durante `MATCHED/LOADING` ni `COUNTDOWN`; queda pendiente comprobarlo en un dispositivo.
+- El botón **Cancelar** no aparece durante `MATCHED/LOADING` ni `COUNTDOWN`; la comprobación visual en dispositivo sigue pendiente.
 
 ## Limitaciones conocidas
 

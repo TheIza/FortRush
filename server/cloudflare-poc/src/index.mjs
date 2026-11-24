@@ -122,9 +122,6 @@ export class WebSocketProbe {
   }
 
   async fetch(request) {
-    if (this.ctx.getWebSockets().length >= 2) {
-      return Response.json({ error: "PROBE_FULL" }, { status: 429 });
-    }
     const pair = new WebSocketPair();
     const client = pair[0];
     const server = pair[1];
@@ -194,10 +191,6 @@ export class WebSocketProbe {
       send(socket, "queue.waiting", { requestId: payload.requestId, position: queue.indexOf(existing) + 1 });
       return;
     }
-    if (queue.length >= 2) {
-      send(socket, "error", { code: "PROBE_FULL", requestId: payload.requestId, message: "La prueba está limitada a dos jugadores." });
-      return;
-    }
     const sequence = (await this.ctx.storage.get("queueSequence") ?? 0) + 1;
     await this.ctx.storage.put("queueSequence", sequence);
     queue.push({ uid: attachment.uid, sequence });
@@ -205,15 +198,23 @@ export class WebSocketProbe {
     await this.ctx.storage.put("queue", queue);
     socket.serializeAttachment({ ...attachment, queueSequence: sequence });
     send(socket, "queue.waiting", { requestId: payload.requestId, position: queue.length });
-    if (queue.length === 2) await this.pairQueue(queue);
+    if (queue.length >= 2 && !(await this.ctx.storage.get("match"))) await this.pairQueue(queue);
   }
 
   async pairQueue(queue) {
+    const activeMatch = await this.ctx.storage.get("match");
+    if (activeMatch && activeMatch.phase !== "FINISHED") return;
+    const orderedQueue = [...queue].sort((a, b) => a.sequence - b.sequence);
+    const selected = orderedQueue.slice(0, 2);
+    if (selected.length < 2) return;
     const socketsByUid = new Map(this.ctx.getWebSockets().map((socket) => [socket.deserializeAttachment()?.uid, socket]));
-    const players = queue.map((entry) => ({ ...entry, socket: socketsByUid.get(entry.uid) }));
+    const players = selected.map((entry) => ({ ...entry, socket: socketsByUid.get(entry.uid) }));
     if (players.some((player) => !player.socket)) {
-      const active = players.filter((player) => player.socket);
-      await this.ctx.storage.put("queue", active.map(({ uid, sequence }) => ({ uid, sequence })));
+      const activeUids = new Set(socketsByUid.keys());
+      const active = orderedQueue.filter((entry) => activeUids.has(entry.uid));
+      await this.ctx.storage.put("queue", active);
+      this.notifyQueue(active);
+      if (active.length >= 2) await this.pairQueue(active);
       return;
     }
     const mapSeed = crypto.randomUUID();
@@ -222,6 +223,7 @@ export class WebSocketProbe {
       matchId: crypto.randomUUID(),
       balance: cloneMatchBalance(),
       phase: "LOADING",
+      loadingDeadlineMs: Date.now() + 30_000,
       players: players.map(({ uid, sequence }, index) => ({
         uid,
         sequence,
@@ -244,7 +246,9 @@ export class WebSocketProbe {
       usedFallback: map.meta.usedFallback
     });
     await this.ctx.storage.put("match", match);
-    await this.ctx.storage.put("queue", []);
+    const waiting = orderedQueue.slice(2);
+    await this.ctx.storage.put("queue", waiting);
+    await this.ctx.storage.setAlarm?.(match.loadingDeadlineMs);
     players.forEach((player, index) => {
       const playerNumber = index + 1;
       player.socket.serializeAttachment({ ...player.socket.deserializeAttachment(), queueSequence: null, matchId: match.matchId, playerNumber });
@@ -255,6 +259,7 @@ export class WebSocketProbe {
         map: match.map
       });
     });
+    this.notifyQueue(waiting);
   }
 
   async cancelQueue(socket, attachment, payload) {
@@ -294,7 +299,36 @@ export class WebSocketProbe {
 
   async alarm() {
     const match = await this.ctx.storage.get("match");
-    if (!match || match.phase !== "COUNTDOWN") return;
+    if (!match) return;
+    if (match.phase === "LOADING") {
+      if (Date.now() < match.loadingDeadlineMs) {
+        await this.ctx.storage.setAlarm?.(match.loadingDeadlineMs);
+        return;
+      }
+      const loadedPlayers = match.players.filter((player) => player.loaded);
+      const requeued = loadedPlayers.length === 1 ? loadedPlayers[0] : null;
+      const socketsByUid = new Map(this.ctx.getWebSockets().map((socket) => [socket.deserializeAttachment()?.uid, socket]));
+      let queue = await this.ctx.storage.get("queue") ?? [];
+      for (const player of match.players) {
+        const playerSocket = socketsByUid.get(player.uid);
+        if (!playerSocket) continue;
+        if (player === requeued) {
+          queue = [...queue.filter((entry) => entry.uid !== player.uid), { uid: player.uid, sequence: player.sequence }]
+            .sort((a, b) => a.sequence - b.sequence);
+          playerSocket.serializeAttachment({ ...playerSocket.deserializeAttachment(), matchId: null, playerNumber: null, queueSequence: player.sequence });
+          send(playerSocket, "match.cancelled", { reason: "LOAD_TIMEOUT", requeued: true });
+        } else {
+          playerSocket.serializeAttachment({ ...playerSocket.deserializeAttachment(), matchId: null, playerNumber: null, queueSequence: null });
+          send(playerSocket, "match.cancelled", { reason: "LOAD_TIMEOUT", requeued: false });
+        }
+      }
+      await this.ctx.storage.put("match", null);
+      await this.ctx.storage.put("queue", queue);
+      this.notifyQueue(queue);
+      if (queue.length >= 2) await this.pairQueue(queue);
+      return;
+    }
+    if (match.phase !== "COUNTDOWN") return;
     if (match.countdown > 1) {
       match.countdown -= 1;
       await this.ctx.storage.put("match", match);

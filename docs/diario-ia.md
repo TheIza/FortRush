@@ -100,5 +100,25 @@ Responder a la revisión visual de la arena: muralla continua de borde a borde, 
 - El test de identidad usa UIDs simulados; no valida un token real de Google ni sustituye la prueba manual con dos dispositivos.
 
 ### Siguiente paso
-- Auditar las garantías del mapa del punto 07 y después probar cola/cancelación y carga/cuenta atrás.
+- El mapa del punto 07 ya tiene cobertura de 1.000 semillas; continuar con cola/cancelación, carga y cuenta atrás antes del combate.
 - La primera mecánica de combate desplegable sigue siendo el punto 10.
+
+## 24/11/2026 — Puntos 08 y 09: cola, cancelación y carga
+
+### Objetivo y cambios
+- Permitir que más de dos jugadores mantengan una espera ordenada mientras una partida está activa.
+- Añadir límite de 30 segundos para confirmar la carga del mapa. Si solo un jugador llegó a cargar, regresa a la cola con su secuencia anterior; el otro queda fuera de esa búsqueda.
+- Ampliar los tests de emparejamiento y preparación del Worker.
+
+### Investigación
+- Se revisaron las páginas oficiales vigentes de [límites de Durable Objects](https://developers.cloudflare.com/durable-objects/platform/limits/) y [precios del plan gratuito](https://developers.cloudflare.com/durable-objects/platform/pricing/). El Worker sigue configurado con una clase Durable Object SQLite; no se activó facturación ni se cambió de plan.
+
+### Comprobaciones reales
+- `node --check` pasó para `index.mjs` y `matchmaking.test.mjs`.
+- `node --test matchmaking.test.mjs`: 5/5 pasaron, incluidos tercer jugador en espera, cancelación aislada, timeout, secuencia preservada y `game_start` compartido.
+- Tras añadir estos casos, `npm test`: 38/38 pasaron; incluye los 1.000 mapas y las pruebas de perfil, economía, construcción y preparación de partida.
+- No se han probado todavía estos flujos en móviles reales.
+
+### Siguiente paso
+- Repetir la suite completa, registrar el resultado y empezar la simulación autoritativa de tropas y combate.
+- La medición de cuota/carga de una partida de cuatro minutos sigue pendiente; las cuotas del plan Free no equivalen a una garantía de disponibilidad.

@@ -44,6 +44,24 @@ Estado: completada mediante tests automatizados.
 - El test sustituye el verificador de Firebase por una función controlada. No usa tokens reales ni reemplaza la validación JWT de producción.
 - npm test: 35/35 pasaron.
 
+### 07 — Mapa y huecos
+Estado: completada por tests automatizados.
+- La suite comprueba 1.000 semillas, siete huecos por lado, simetría, coberturas y mapas de respaldo.
+- `npm test`: el test de 1.000 mapas pasó en la ejecución del 24/11/2026.
+
+### 08 — Cola y cancelación
+Estado: completada en código y tests automatizados.
+- El emparejamiento toma a los dos primeros, conserva en cola a las personas siguientes mientras la partida está activa y actualiza sus posiciones.
+- Una tercera conexión ya no se rechaza por superar el límite de dos; puede cancelar solo su propia espera.
+- Test dirigido: un tercer jugador espera y cancela sin modificar la partida de los dos emparejados.
+
+### 09 — Carga y cuenta atrás
+Estado: completada en lógica del Worker y tests automatizados; falta prueba visual en dispositivos.
+- La sala tiene un límite de carga de 30 segundos. Si solo una persona confirma carga, conserva su secuencia al volver a la cola; quien no cargó se retira.
+- Dos confirmaciones inician la cuenta atrás compartida 3, 2, 1 y ambos reciben el mismo `game_start`.
+- Los controles de juego todavía no aparecen durante carga/cuenta atrás. Las acciones de torre siguen rechazándose en fases distintas a `IN_MATCH`.
+- `node --test matchmaking.test.mjs`: 5/5 pasaron; `npm test`: 38/38 pasaron el 24/11/2026.
+
 ## Siguiente paso
 
-Auditar y cerrar el punto 07 con las pruebas existentes de geometría, siete huecos por jugador, simetría y mapas de respaldo. Luego verificar cola/cancelación (08) y carga/cuenta atrás (09). El primer combate jugable empieza en el punto 10.
+El primer combate empieza en el punto 10: desplegar Espadachines, moverlos y sincronizar el estado. Después se añadirán muro/castillo, final normal, torres, Escuderos y muerte súbita para obtener una partida completa de beta.
