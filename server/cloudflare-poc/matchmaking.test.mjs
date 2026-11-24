@@ -189,7 +189,14 @@ test("both loaded players receive the same game start after the shared countdown
   const firstStart = first.messages.find((message) => message.type === "game_start");
   const secondStart = second.messages.find((message) => message.type === "game_start");
   assert.ok(firstStart);
-  assert.deepEqual(firstStart, secondStart);
+  assert.ok(secondStart);
+  assert.equal(firstStart.state.viewerPlayerNumber, 1);
+  assert.equal(secondStart.state.viewerPlayerNumber, 2);
+  const firstSharedStart = structuredClone(firstStart);
+  const secondSharedStart = structuredClone(secondStart);
+  firstSharedStart.state.viewerPlayerNumber = 0;
+  secondSharedStart.state.viewerPlayerNumber = 0;
+  assert.deepEqual(firstSharedStart, secondSharedStart);
   assert.deepEqual(firstStart.map, map);
   assert.ok(alarms.length >= 3);
 });

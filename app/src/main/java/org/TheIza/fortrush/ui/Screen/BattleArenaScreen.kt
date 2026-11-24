@@ -1,5 +1,6 @@
 package org.TheIza.fortrush.ui.Screen
 
+import android.graphics.BitmapFactory
 import android.os.SystemClock
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
@@ -47,6 +48,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
@@ -56,6 +59,7 @@ import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -64,6 +68,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import kotlinx.coroutines.coroutineScope
@@ -73,13 +78,17 @@ import kotlin.math.roundToInt
 import org.TheIza.fortrush.R
 import org.TheIza.fortrush.data.matchmaking.MatchDecoration
 import org.TheIza.fortrush.data.matchmaking.MatchEconomySnapshot
+import org.TheIza.fortrush.data.matchmaking.MatchGameResult
+import org.TheIza.fortrush.data.matchmaking.MatchGameSnapshot
+import org.TheIza.fortrush.data.matchmaking.MatchGameTroop
 import org.TheIza.fortrush.data.matchmaking.MatchMap
 import org.TheIza.fortrush.data.matchmaking.MatchPoint
+import org.TheIza.fortrush.data.matchmaking.MatchTroopCard
 import org.TheIza.fortrush.data.matchmaking.MatchTowerCard
 
 enum class ArenaTowerKind { ARROW, CANNON }
 
-private const val ARENA_TOWER_SIZE_FRACTION = 0.17f
+private const val ARENA_TOWER_WIDTH_FRACTION = 0.14f
 
 data class ArenaTowerPlacement(
     val ownerPlayerNumber: Int,
@@ -103,6 +112,8 @@ fun BattleArenaScreen(
     map: MatchMap,
     playerNumber: Int,
     opponentNickname: String,
+    gameState: MatchGameSnapshot? = null,
+    matchResult: MatchGameResult? = null,
     destroyedWallOwners: Set<Int> = emptySet(),
     towerPlacements: List<ArenaTowerPlacement> = emptyList(),
     pendingSlotIds: Set<String> = emptySet(),
@@ -110,6 +121,11 @@ fun BattleArenaScreen(
     buildError: String? = null,
     isMatchActive: Boolean = false,
     onBuildTower: (MatchTowerCard, String) -> Boolean = { _, _ -> false },
+    onDeployTroop: (MatchTroopCard, Float) -> Boolean = { _, _ -> false },
+    onSellTower: (String) -> Boolean = { false },
+    onSurrender: () -> Unit = {},
+    onReturnHome: () -> Unit = {},
+    pendingTroopCards: Set<String> = emptySet(),
     onClearBuildError: () -> Unit = {},
     isDebugBotMode: Boolean = false,
     onExitDebug: (() -> Unit)? = null
@@ -117,6 +133,7 @@ fun BattleArenaScreen(
     val opponentPlayerNumber = if (playerNumber == 1) 2 else 1
     var selectedSlotId by remember(map.seed, playerNumber) { mutableStateOf<String?>(null) }
     var selectedTowerCard by remember(map.seed, playerNumber) { mutableStateOf<MatchTowerCard?>(null) }
+    var selectedTroopCard by remember(map.seed, playerNumber) { mutableStateOf<MatchTroopCard?>(null) }
     var draggedTowerCard by remember(map.seed, playerNumber) { mutableStateOf<MatchTowerCard?>(null) }
     var dragPointerRoot by remember(map.seed, playerNumber) { mutableStateOf<Offset?>(null) }
     var dragTargetRoot by remember(map.seed, playerNumber) { mutableStateOf<Offset?>(null) }
@@ -131,16 +148,31 @@ fun BattleArenaScreen(
     val density = LocalDensity.current
     val economyReceivedAt = remember(economy) { SystemClock.elapsedRealtime() }
     var economyTick by remember(map.seed) { mutableLongStateOf(0L) }
+    var gameClockTick by remember(map.seed) { mutableLongStateOf(0L) }
+    var showSurrenderConfirmation by remember(map.seed) { mutableStateOf(false) }
+    var showSellConfirmation by remember(map.seed) { mutableStateOf<String?>(null) }
     LaunchedEffect(economy) {
         while (economy != null) {
             delay(250)
             economyTick += 1L
         }
     }
+    LaunchedEffect(gameState?.sequence) {
+        gameClockTick = 0L
+        while (gameState != null && gameState.phase != "FINISHED") {
+            delay(250)
+            gameClockTick += 1L
+        }
+    }
     val currentCoins = remember(economy, economyTick) {
         economy?.coinsAfterElapsed(SystemClock.elapsedRealtime() - economyReceivedAt) ?: 0
     }
     fun towerCost(card: MatchTowerCard): Int = economy?.balance?.towerCost(card) ?: card.cost
+    fun troopCost(card: MatchTroopCard): Int = economy?.balance?.troopCost(card) ?: card.cost
+    val localVitals = if (playerNumber == 1) gameState?.player1 else gameState?.player2
+    val opponentVitals = if (playerNumber == 1) gameState?.player2 else gameState?.player1
+    val remainingForClock = ((gameState?.remainingMs ?: 240_000L) - gameClockTick * 250L).coerceAtLeast(0L)
+    val displayedResult = matchResult ?: gameState?.result
     LaunchedEffect(blueprintReturn) {
         val returning = blueprintReturn ?: return@LaunchedEffect
         returnX.snapTo(returning.from.x)
@@ -210,6 +242,7 @@ fun BattleArenaScreen(
         }
         if (onBuildTower(card, slotId)) {
             selectedTowerCard = null
+            selectedTroopCard = null
             selectedSlotId = null
             localFeedback = null
             return true
@@ -244,6 +277,7 @@ fun BattleArenaScreen(
         dragTargetSlotId = null
         dragTargetValid = false
         selectedTowerCard = null
+        selectedTroopCard = null
     }
 
     fun cancelDrag(card: MatchTowerCard, cardCoordinates: LayoutCoordinates) {
@@ -257,11 +291,12 @@ fun BattleArenaScreen(
         dragTargetSlotId = null
         dragTargetValid = false
         selectedTowerCard = null
+        selectedTroopCard = null
     }
 
     val rejectionText = buildError ?: localFeedback ?: selectedTowerCard?.let {
         "${it.displayName} seleccionada · toca un hueco propio libre"
-    }
+    } ?: selectedTroopCard?.let { "${it.displayName} seleccionada · toca el camino en tu zona" }
 
     Box(
         Modifier
@@ -273,7 +308,14 @@ fun BattleArenaScreen(
             ArenaOpponentStatus(
                 nickname = opponentNickname,
                 playerNumber = opponentPlayerNumber,
+                castleHealth = opponentVitals?.castleHealth,
+                wallHealth = opponentVitals?.wallHealth,
+                phase = gameState?.phase,
+                remainingMs = remainingForClock,
                 onExitDebug = if (isDebugBotMode) onExitDebug else null,
+                onSurrender = if (!isDebugBotMode && gameState?.phase == "IN_MATCH") {
+                    { showSurrenderConfirmation = true }
+                } else null,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(60.dp)
@@ -283,16 +325,27 @@ fun BattleArenaScreen(
             ArenaMapCanvas(
                 map = map,
                 playerNumber = playerNumber,
-                destroyedWallOwners = destroyedWallOwners,
+                gameState = gameState,
+                destroyedWallOwners = gameState?.let { state ->
+                    buildSet {
+                        if (state.player1.wallHealth <= 0f) add(1)
+                        if (state.player2.wallHealth <= 0f) add(2)
+                    }
+                } ?: destroyedWallOwners,
                 towerPlacements = towerPlacements,
                 pendingSlotIds = pendingSlotIds,
                 selectedSlotId = selectedSlotId,
                 selectedTowerCard = selectedTowerCard,
                 draggedTowerCard = draggedTowerCard,
+                selectedTroopCard = selectedTroopCard,
                 dragTargetSlotId = dragTargetSlotId,
                 dragTargetValid = dragTargetValid,
                 canBuild = isMatchActive,
                 coins = currentCoins,
+                arrowTowerRangeFraction = economy?.balance?.towerRangeFraction(MatchTowerCard.ARROW_TOWER)
+                    ?: map.towerRangeFraction,
+                cannonTowerRangeFraction = economy?.balance?.towerRangeFraction(MatchTowerCard.CANNON_TOWER)
+                    ?: map.towerRangeFraction * 0.8f,
                 onTapOwnSlot = { slotId ->
                     val card = selectedTowerCard
                     if (card != null) {
@@ -306,6 +359,20 @@ fun BattleArenaScreen(
                         selectedSlotId = null
                     }
                 },
+                onTapPath = { position ->
+                    val card = selectedTroopCard
+                    if (card == null) {
+                        localFeedback = "Selecciona una carta de tropa y toca el camino."
+                    } else if (pendingTroopCards.contains(card.wireId)) {
+                        localFeedback = "El servidor está confirmando ese despliegue."
+                    } else if (isMatchActive && onDeployTroop(card, position)) {
+                        selectedTroopCard = null
+                        selectedTowerCard = null
+                        localFeedback = "Tropa enviada al camino…"
+                    } else {
+                        localFeedback = "No se pudo desplegar. Comprueba la fase y tus monedas."
+                    }
+                },
                 onPositioned = { arenaCoordinates = it },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -313,7 +380,8 @@ fun BattleArenaScreen(
                     .semantics {
                         contentDescription = "Arena aleatoria compartida, " +
                             "${map.player1Slots.size + map.player2Slots.size} huecos de torre. " +
-                            "Toca una carta de torre y luego uno de tus huecos libres, o mantenla pulsada y arrástrala. " +
+                        "Selecciona una tropa y toca el camino en tu mitad para desplegarla. " +
+                        "Para torres, toca una carta y luego un hueco propio libre, o mantenla pulsada y arrástrala. " +
                             "Vista del jugador $playerNumber"
                     }
             )
@@ -322,18 +390,32 @@ fun BattleArenaScreen(
                 modifier = Modifier.fillMaxWidth(),
                 coins = currentCoins,
                 incomePerSecond = economy?.incomeRateAfterElapsed(SystemClock.elapsedRealtime() - economyReceivedAt) ?: 5,
+                ownWallHealth = localVitals?.wallHealth,
+                ownCastleHealth = localVitals?.castleHealth,
+                phase = gameState?.phase,
                 towerCosts = MatchTowerCard.entries.associate { it.wireId to towerCost(it) },
+                troopCosts = MatchTroopCard.entries.associate { it.wireId to troopCost(it) },
                 selectedTowerCard = selectedTowerCard,
+                selectedTroopCard = selectedTroopCard,
                 draggedTowerCard = draggedTowerCard,
                 message = rejectionText,
                 onTowerCardTap = { card ->
                     selectedTowerCard = if (selectedTowerCard == card) null else card
+                    selectedTroopCard = null
+                    selectedSlotId = null
+                    localFeedback = null
+                    onClearBuildError()
+                },
+                onTroopCardTap = { card ->
+                    selectedTroopCard = if (selectedTroopCard == card) null else card
+                    selectedTowerCard = null
                     selectedSlotId = null
                     localFeedback = null
                     onClearBuildError()
                 },
                 onDragStart = { card, coordinates, point ->
                     selectedTowerCard = null
+                    selectedTroopCard = null
                     selectedSlotId = null
                     draggedTowerCard = card
                     updateDragTarget(card, coordinates, point)
@@ -356,6 +438,50 @@ fun BattleArenaScreen(
                 modifier = Modifier.zIndex(2f)
             )
         }
+        val selectedOwnedTower = selectedSlotId?.takeIf { slotId ->
+            towerPlacements.any { it.slotId == slotId && it.ownerPlayerNumber == playerNumber }
+        }
+        if (selectedOwnedTower != null && isMatchActive) {
+            Box(
+                Modifier.align(Alignment.Center).zIndex(3f)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xF01B2633))
+                    .border(1.dp, Color(0xFFFFD34F), RoundedCornerShape(12.dp))
+                    .clickable { showSellConfirmation = selectedOwnedTower }
+                    .padding(horizontal = 18.dp, vertical = 10.dp)
+            ) {
+                Text("Vender torre", color = Color(0xFFFFE27A), fontSize = 14.sp, fontWeight = FontWeight.Black)
+            }
+        }
+        if (showSurrenderConfirmation) {
+            ArenaConfirmPanel(
+                title = "¿Rendirse?",
+                message = "Tu rival ganará la partida.",
+                confirmText = "Rendirse",
+                onCancel = { showSurrenderConfirmation = false },
+                onConfirm = { showSurrenderConfirmation = false; onSurrender() }
+            )
+        }
+        showSellConfirmation?.let { slotId ->
+            val tower = towerPlacements.firstOrNull { it.slotId == slotId }
+            val refund = tower?.let { placement ->
+                val card = if (placement.kind == ArenaTowerKind.ARROW) MatchTowerCard.ARROW_TOWER else MatchTowerCard.CANNON_TOWER
+                (towerCost(card) * 0.5f).toInt()
+            } ?: 0
+            ArenaConfirmPanel(
+                title = "Vender torre",
+                message = "Recibirás $refund monedas y liberarás el hueco.",
+                confirmText = "Vender",
+                onCancel = { showSellConfirmation = null },
+                onConfirm = {
+                    showSellConfirmation = null
+                    localFeedback = if (onSellTower(slotId)) "Venta enviada al servidor…" else "No se pudo enviar la venta."
+                }
+            )
+        }
+        displayedResult?.let { result ->
+            ArenaResultPanel(result, playerNumber, onReturnHome)
+        }
     }
 }
 
@@ -365,7 +491,12 @@ private data class BlueprintReturn(val card: MatchTowerCard, val from: Offset, v
 private fun ArenaOpponentStatus(
     nickname: String,
     playerNumber: Int,
+    castleHealth: Float?,
+    wallHealth: Float?,
+    phase: String?,
+    remainingMs: Long,
     onExitDebug: (() -> Unit)?,
+    onSurrender: (() -> Unit)?,
     modifier: Modifier = Modifier
 ) {
     val playerColor = if (playerNumber == 1) Color(0xFF367DD0) else Color(0xFFC74336)
@@ -401,17 +532,22 @@ private fun ArenaOpponentStatus(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(2.dp))
+            Text(
+                "Castillo ${castleHealth?.toInt()?.coerceAtLeast(0) ?: 400}/400 · Muro ${wallHealth?.toInt()?.coerceAtLeast(0) ?: 500}/500",
+                color = Color(0xFFD4DBE2), fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
+            )
+            Spacer(Modifier.height(3.dp))
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .height(7.dp)
+                    .height(5.dp)
                     .clip(CircleShape)
                     .background(Color(0xFF151B22))
             ) {
                 Box(
-                    Modifier
-                        .fillMaxSize()
+                    Modifier.fillMaxWidth(((castleHealth ?: 400f) / 400f).coerceIn(0f, 1f))
+                        .fillMaxHeight()
                         .clip(CircleShape)
                         .background(playerColor)
                 )
@@ -426,7 +562,10 @@ private fun ArenaOpponentStatus(
         )
         Spacer(Modifier.width(4.dp))
         Text(
-            text = "4:00",
+            text = if (phase == "SUDDEN_DEATH") "M.S." else {
+                val seconds = (remainingMs + 999L) / 1_000L
+                "%d:%02d".format(seconds / 60L, seconds % 60L)
+            },
             color = Color.White,
             fontSize = 16.sp,
             fontWeight = FontWeight.Black
@@ -445,13 +584,102 @@ private fun ArenaOpponentStatus(
                 Text("×", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black)
             }
         }
+        if (onSurrender != null) {
+            Spacer(Modifier.width(4.dp))
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF7E3B32))
+                    .clickable(role = Role.Button, onClick = onSurrender)
+                    .semantics { contentDescription = "Rendirse" },
+                contentAlignment = Alignment.Center
+            ) {
+                Text("⚑", color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Black)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ArenaConfirmPanel(
+    title: String,
+    message: String,
+    confirmText: String,
+    onCancel: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    Box(
+        Modifier.fillMaxSize().background(Color(0x99000000)).zIndex(5f),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            Modifier.fillMaxWidth(0.84f).clip(RoundedCornerShape(16.dp))
+                .background(Color(0xFF283647))
+                .border(2.dp, Color(0xFFC79A57), RoundedCornerShape(16.dp))
+                .padding(18.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(title, color = Color(0xFFFFDF8A), fontSize = 20.sp, fontWeight = FontWeight.Black)
+            Text(message, color = Color.White, fontSize = 15.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                ArenaDialogButton("Volver", Color(0xFF76483A), onCancel)
+                ArenaDialogButton(confirmText, Color(0xFF9E322B), onConfirm)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ArenaResultPanel(result: MatchGameResult, playerNumber: Int, onReturnHome: () -> Unit) {
+    val title = when (result.winnerPlayerNumber) {
+        null -> "¡Empate!"
+        playerNumber -> "¡Victoria!"
+        else -> "Derrota"
+    }
+    Box(
+        Modifier.fillMaxSize().background(Color(0xD9000000)).zIndex(6f),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            Modifier.fillMaxWidth(0.86f).clip(RoundedCornerShape(18.dp))
+                .background(Color(0xFF273546))
+                .border(3.dp, Color(0xFFC79A57), RoundedCornerShape(18.dp))
+                .padding(22.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Text(title, color = if (result.winnerPlayerNumber == playerNumber) Color(0xFFFFD65C) else Color.White,
+                fontSize = 26.sp, fontWeight = FontWeight.Black)
+            Text("Castillo propio: ${healthForPlayer(result, playerNumber).toInt()} · Rival: ${healthForPlayer(result, if (playerNumber == 1) 2 else 1).toInt()}",
+                color = Color.White, fontSize = 14.sp)
+            ArenaDialogButton("Volver a Inicio", Color(0xFFB87925), onReturnHome)
+        }
+    }
+}
+
+private fun healthForPlayer(result: MatchGameResult, player: Int): Float =
+    if (player == 1) result.player1CastleHealth else result.player2CastleHealth
+
+@Composable
+private fun ArenaDialogButton(label: String, color: Color, onClick: () -> Unit) {
+    Box(
+        Modifier.clip(RoundedCornerShape(9.dp)).background(color)
+            .border(1.dp, Color(0xFFFFD786), RoundedCornerShape(9.dp))
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(label, color = Color.White, fontWeight = FontWeight.Black, fontSize = 13.sp)
     }
 }
 
 private data class ArenaHandCardModel(
     val imageResource: Int,
     val description: String,
-    val towerCard: MatchTowerCard? = null
+    val towerCard: MatchTowerCard? = null,
+    val troopCard: MatchTroopCard? = null
 )
 
 @Composable
@@ -459,19 +687,25 @@ private fun ArenaCardHand(
     modifier: Modifier = Modifier,
     coins: Int,
     incomePerSecond: Int,
+    ownWallHealth: Float?,
+    ownCastleHealth: Float?,
+    phase: String?,
     towerCosts: Map<String, Int>,
+    troopCosts: Map<String, Int>,
     selectedTowerCard: MatchTowerCard?,
+    selectedTroopCard: MatchTroopCard?,
     draggedTowerCard: MatchTowerCard?,
     message: String?,
     onTowerCardTap: (MatchTowerCard) -> Unit,
+    onTroopCardTap: (MatchTroopCard) -> Unit,
     onDragStart: (MatchTowerCard, LayoutCoordinates, Offset) -> Unit,
     onDragMove: (MatchTowerCard, LayoutCoordinates, Offset) -> Unit,
     onDragEnd: (MatchTowerCard, LayoutCoordinates) -> Unit,
     onDragCancel: (MatchTowerCard, LayoutCoordinates) -> Unit
 ) {
     val cards = listOf(
-        ArenaHandCardModel(R.drawable.carta_espadachines, "Carta de Espadachín"),
-        ArenaHandCardModel(R.drawable.carta_escuderos, "Carta de Escudero"),
+        ArenaHandCardModel(R.drawable.carta_espadachines, "Carta de Espadachín", troopCard = MatchTroopCard.ESPADACHIN),
+        ArenaHandCardModel(R.drawable.carta_escuderos, "Carta de Escudero", troopCard = MatchTroopCard.ESCUDERO),
         ArenaHandCardModel(R.drawable.carta_torre_flechas, "Carta de Torre de flechas", MatchTowerCard.ARROW_TOWER),
         ArenaHandCardModel(R.drawable.carta_torre_canon, "Carta de Torre de cañón", MatchTowerCard.CANNON_TOWER)
     )
@@ -504,6 +738,16 @@ private fun ArenaCardHand(
             Spacer(Modifier.width(9.dp))
             Text("+$incomePerSecond/s", color = Color(0xFFD4DBE2), fontWeight = FontWeight.Bold, fontSize = 11.sp)
         }
+        Text(
+            text = "Tu muro ${ownWallHealth?.toInt()?.coerceAtLeast(0) ?: 500}/500 · Castillo ${ownCastleHealth?.toInt()?.coerceAtLeast(0) ?: 400}/400" +
+                if (phase == "SUDDEN_DEATH") " · MUERTE SÚBITA" else "",
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 15.dp),
+            color = if (phase == "SUDDEN_DEATH") Color(0xFFFF927B) else Color(0xFFD4DBE2),
+            fontWeight = FontWeight.Bold,
+            fontSize = 10.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
         if (!message.isNullOrBlank()) {
             Text(
                 text = message,
@@ -526,10 +770,15 @@ private fun ArenaCardHand(
                 ArenaHandCard(
                     model = card,
                     modifier = Modifier.weight(1f).aspectRatio(0.72f),
-                    towerCost = card.towerCard?.let { towerCosts[it.wireId] },
-                    selected = card.towerCard != null && selectedTowerCard == card.towerCard,
+                    price = card.towerCard?.let { towerCosts[it.wireId] }
+                        ?: card.troopCard?.let { troopCosts[it.wireId] },
+                    selected = (card.towerCard != null && selectedTowerCard == card.towerCard) ||
+                        (card.troopCard != null && selectedTroopCard == card.troopCard),
                     isDragging = card.towerCard != null && draggedTowerCard == card.towerCard,
-                    onTap = { card.towerCard?.let(onTowerCardTap) },
+                    onTap = {
+                        card.towerCard?.let(onTowerCardTap)
+                        card.troopCard?.let(onTroopCardTap)
+                    },
                     onDragStart = { tower, coordinates, point -> onDragStart(tower, coordinates, point) },
                     onDragMove = onDragMove,
                     onDragEnd = onDragEnd,
@@ -545,7 +794,7 @@ private fun ArenaCardHand(
 private fun ArenaHandCard(
     model: ArenaHandCardModel,
     modifier: Modifier,
-    towerCost: Int?,
+    price: Int?,
     selected: Boolean,
     isDragging: Boolean,
     onTap: () -> Unit,
@@ -558,13 +807,18 @@ private fun ArenaHandCard(
     val currentCoordinates by rememberUpdatedState(coordinates)
     val towerCard = model.towerCard
     var cardModifier = modifier.semantics {
-            contentDescription = if (towerCard == null) model.description else
-            "${towerCard.displayName}, cuesta ${towerCost ?: towerCard.cost} monedas. Toca para seleccionar o manten pulsado y arrastra."
+            val cardName = towerCard?.displayName ?: model.troopCard?.displayName ?: model.description
+            val fallbackCost = towerCard?.cost ?: model.troopCard?.cost ?: 0
+            contentDescription = if (model.troopCard != null) {
+                "$cardName, cuesta ${price ?: fallbackCost} monedas. Toca para seleccionar y después toca tu mitad del camino."
+            } else {
+                "$cardName, cuesta ${price ?: fallbackCost} monedas. Toca para seleccionar un hueco propio o mantenla pulsada y arrástrala."
+            }
         }
+    cardModifier = cardModifier.combinedClickable(role = Role.Button, onClick = onTap)
     if (towerCard != null) {
         cardModifier = cardModifier
             .onGloballyPositioned { coordinates = it }
-            .combinedClickable(role = Role.Button, onClick = onTap)
             .pointerInput(towerCard) {
                 detectDragGesturesAfterLongPress(
                     onDragStart = { point -> currentCoordinates?.let { onDragStart(towerCard, it, point) } },
@@ -601,7 +855,7 @@ private fun ArenaHandCard(
                 .then(if (isDragging) Modifier.clip(RoundedCornerShape(10.dp)) else Modifier),
             contentScale = ContentScale.Fit
         )
-        if (towerCard != null) {
+        if (price != null) {
             Row(
                 Modifier
                     .align(Alignment.BottomEnd)
@@ -613,7 +867,7 @@ private fun ArenaHandCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Image(painterResource(R.drawable.moneda), contentDescription = null, modifier = Modifier.size(12.dp))
-                Text(towerCard.cost.toString(), color = Color(0xFFFFE27A), fontWeight = FontWeight.Black, fontSize = 10.sp)
+                Text(price.toString(), color = Color(0xFFFFE27A), fontWeight = FontWeight.Black, fontSize = 10.sp)
             }
         }
     }
@@ -672,24 +926,142 @@ private fun arenaSlotTargets(
     }
 }
 
+private fun pointAtMapDistance(map: MatchMap, station: Float): MatchPoint? {
+    val points = map.path
+    val cumulative = map.pathCumulativeLengths
+    if (points.size < 2 || cumulative.size != points.size || map.pathTotalLength <= 0f) return null
+    val distance = station.coerceIn(0f, map.pathTotalLength)
+    val right = cumulative.indexOfFirst { it >= distance }.let { if (it < 1) 1 else it.coerceAtMost(points.lastIndex) }
+    val left = right - 1
+    val span = (cumulative[right] - cumulative[left]).coerceAtLeast(0.0001f)
+    val fraction = ((distance - cumulative[left]) / span).coerceIn(0f, 1f)
+    return MatchPoint(
+        points[left].x + (points[right].x - points[left].x) * fraction,
+        points[left].y + (points[right].y - points[left].y) * fraction
+    )
+}
+
+private fun pathSectionPoints(map: MatchMap, start: Float, end: Float): List<MatchPoint> {
+    if (end <= start || map.pathCumulativeLengths.size != map.path.size) return emptyList()
+    return buildList {
+        pointAtMapDistance(map, start)?.let { add(it) }
+        map.path.forEachIndexed { index, point ->
+            val station = map.pathCumulativeLengths[index]
+            if (station > start && station < end) add(point)
+        }
+        pointAtMapDistance(map, end)?.let { add(it) }
+    }
+}
+
+/** Returns the server's path station only when the touch lies on this player's valid half. */
+internal fun pathStationForTouch(
+    map: MatchMap,
+    tap: Offset,
+    playerNumber: Int,
+    boardLeft: Float,
+    boardWidth: Float,
+    boardHeight: Float
+): Float? {
+    val points = map.path
+    val cumulative = map.pathCumulativeLengths
+    val total = map.pathTotalLength
+    if (points.size < 2 || cumulative.size != points.size || total <= 0f || boardWidth <= 0f || boardHeight <= 0f) return null
+    val validStart = if (playerNumber == 1) 0f else total * 0.525f
+    val validEnd = if (playerNumber == 1) total * 0.475f else total
+    var closestDistanceSquared = Float.POSITIVE_INFINITY
+    var closestStation = 0f
+    for (index in 0 until points.lastIndex) {
+        val segmentStart = cumulative[index]
+        val segmentEnd = cumulative[index + 1]
+        if (segmentEnd <= segmentStart) continue
+        fun screenPoint(fraction: Float): Offset {
+            val rawX = points[index].x + (points[index + 1].x - points[index].x) * fraction
+            val rawY = points[index].y + (points[index + 1].y - points[index].y) * fraction
+            val orientedX = if (playerNumber == 2) 1f - rawX else rawX
+            val orientedY = if (playerNumber == 2) 1f - rawY else rawY
+            return Offset(boardLeft + orientedX * boardWidth, orientedY * boardHeight)
+        }
+        val start = screenPoint(0f)
+        val end = screenPoint(1f)
+        val dx = end.x - start.x
+        val dy = end.y - start.y
+        val lengthSquared = dx * dx + dy * dy
+        val progress = if (lengthSquared <= 0.0001f) 0f else
+            (((tap.x - start.x) * dx + (tap.y - start.y) * dy) / lengthSquared).coerceIn(0f, 1f)
+        val projectedX = start.x + dx * progress
+        val projectedY = start.y + dy * progress
+        val distanceSquared = (tap.x - projectedX) * (tap.x - projectedX) + (tap.y - projectedY) * (tap.y - projectedY)
+        if (distanceSquared < closestDistanceSquared) {
+            closestDistanceSquared = distanceSquared
+            closestStation = segmentStart + (segmentEnd - segmentStart) * progress
+        }
+    }
+    val touchRadius = maxOf(boardWidth * map.pathWidthFraction * 0.72f, 24f)
+    return closestStation.takeIf {
+        closestDistanceSquared <= touchRadius * touchRadius && it >= validStart && it <= validEnd
+    }
+}
+
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawTroopSprite(
+    sprite: ImageBitmap,
+    troop: MatchGameTroop,
+    center: Offset,
+    size: Float
+) {
+    val frameWidth = (sprite.width / 4).coerceAtLeast(1)
+    val frameHeight = (sprite.height / 2).coerceAtLeast(1)
+    val frame = 0
+    val column = frame % 4
+    val row = 0
+    val width = size.coerceAtLeast(1f).roundToInt()
+    val height = size.coerceAtLeast(1f).roundToInt()
+    val left = (center.x - width / 2f).roundToInt()
+    val top = (center.y - height / 2f).roundToInt()
+    drawImage(
+        image = sprite,
+        srcOffset = IntOffset(column * frameWidth, row * frameHeight),
+        srcSize = IntSize(frameWidth, frameHeight),
+        dstOffset = IntOffset(left, top),
+        dstSize = IntSize(width, height)
+    )
+    val healthRatio = (troop.health / troop.maxHealth).coerceIn(0f, 1f)
+    val barWidth = size * 0.72f
+    val barHeight = 3.dp.toPx()
+    val barTop = top.toFloat() - barHeight - 2.dp.toPx()
+    drawRoundRect(Color(0xFF17211B), Offset(center.x - barWidth / 2f, barTop), Size(barWidth, barHeight), cornerRadius = androidx.compose.ui.geometry.CornerRadius(barHeight))
+    drawRoundRect(Color(0xFF63DF6D), Offset(center.x - barWidth / 2f, barTop), Size(barWidth * healthRatio, barHeight), cornerRadius = androidx.compose.ui.geometry.CornerRadius(barHeight))
+}
+
 @Composable
 private fun ArenaMapCanvas(
     map: MatchMap,
     playerNumber: Int,
+    gameState: MatchGameSnapshot?,
     destroyedWallOwners: Set<Int>,
     towerPlacements: List<ArenaTowerPlacement>,
     pendingSlotIds: Set<String>,
     selectedSlotId: String?,
     selectedTowerCard: MatchTowerCard?,
     draggedTowerCard: MatchTowerCard?,
+    selectedTroopCard: MatchTroopCard?,
     dragTargetSlotId: String?,
     dragTargetValid: Boolean,
     canBuild: Boolean,
     coins: Int,
+    arrowTowerRangeFraction: Float,
+    cannonTowerRangeFraction: Float,
     onTapOwnSlot: (String) -> Unit,
+    onTapPath: (Float) -> Unit,
     onPositioned: (LayoutCoordinates) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    val swordsmanSprite = remember(context) {
+        BitmapFactory.decodeResource(context.resources, R.drawable.espadachin_animaciones).asImageBitmap()
+    }
+    val escuderoSprite = remember(context) {
+        BitmapFactory.decodeResource(context.resources, R.drawable.escudero_animaciones).asImageBitmap()
+    }
     val grass = painterResource(R.drawable.cesped)
     val treeOne = painterResource(R.drawable.arbol_01)
     val treeTwo = painterResource(R.drawable.arbol_02)
@@ -719,6 +1091,7 @@ private fun ArenaMapCanvas(
     }
 
     val currentOnTapOwnSlot by rememberUpdatedState(onTapOwnSlot)
+    val currentOnTapPath by rememberUpdatedState(onTapPath)
 
     Canvas(
         modifier
@@ -730,6 +1103,18 @@ private fun ArenaMapCanvas(
                 val hitTargets = arenaSlotTargets(map, playerNumber, size.width.toFloat(), size.height.toFloat(), hitRadius)
                 val selected = pickOwnSlot(MatchPoint(tap.x, tap.y), hitTargets, playerNumber)
                 if (selected != null) currentOnTapOwnSlot(selected.id)
+                else {
+                    val boardWidth = minOf(size.width.toFloat(), size.height * 9f / 16f)
+                    val boardLeft = (size.width - boardWidth) / 2f
+                    pathStationForTouch(
+                        map = map,
+                        tap = tap,
+                        playerNumber = playerNumber,
+                        boardLeft = boardLeft,
+                        boardWidth = boardWidth,
+                        boardHeight = size.height.toFloat()
+                    )?.let(currentOnTapPath)
+                }
             }
         }
     ) {
@@ -823,6 +1208,30 @@ private fun ArenaMapCanvas(
             )
         )
 
+        if (selectedTroopCard != null && map.pathTotalLength > 0f) {
+            val ownStart = if (playerNumber == 1) 0f else map.pathTotalLength * 0.525f
+            val ownEnd = if (playerNumber == 1) map.pathTotalLength * 0.475f else map.pathTotalLength
+            val validPath = Path().apply {
+                pathSectionPoints(map, ownStart, ownEnd).forEachIndexed { index, point ->
+                    val position = oriented(point)
+                    if (index == 0) moveTo(position.x, position.y) else lineTo(position.x, position.y)
+                }
+            }
+            drawPath(validPath, Color(0xB839D06A), style = Stroke(
+                width = roadWidth * 1.18f, cap = StrokeCap.Round, join = StrokeJoin.Round
+            ))
+            val forbiddenPath = Path().apply {
+                pathSectionPoints(map, map.pathTotalLength * 0.475f, map.pathTotalLength * 0.525f)
+                    .forEachIndexed { index, point ->
+                        val position = oriented(point)
+                        if (index == 0) moveTo(position.x, position.y) else lineTo(position.x, position.y)
+                    }
+            }
+            drawPath(forbiddenPath, Color(0xCCDC5651), style = Stroke(
+                width = roadWidth * 1.12f, cap = StrokeCap.Round, join = StrokeJoin.Round
+            ))
+        }
+
         slotVisuals.forEach { slot ->
             val center = oriented(slot.point)
             val ownerColor = if (slot.ownerPlayerNumber == 1) Color(0xFF59A3FF) else Color(0xFFF47766)
@@ -831,13 +1240,23 @@ private fun ArenaMapCanvas(
             val isTarget = slot.id == dragTargetSlotId
             val activeTowerCard = draggedTowerCard ?: selectedTowerCard
             val slotIsOccupiedOrPending = towerPlacements.any { it.slotId == slot.id } || slot.id in pendingSlotIds
-            if (slot.ownerPlayerNumber == playerNumber && slot.id == selectedSlotId && towerInSlot && map.towerRangeFraction > 0f) {
-                val rangeRadius = boardWidth * map.towerRangeFraction
+            val selectedTower = towerPlacements.firstOrNull { it.slotId == slot.id && it.ownerPlayerNumber == playerNumber }
+            val selectedTowerCardKind = selectedTower?.let {
+                if (it.kind == ArenaTowerKind.ARROW) MatchTowerCard.ARROW_TOWER else MatchTowerCard.CANNON_TOWER
+            }
+            val rangeCard = if (isTarget) activeTowerCard ?: selectedTowerCardKind else selectedTowerCardKind ?: activeTowerCard
+            val rangeFraction = when (rangeCard) {
+                MatchTowerCard.ARROW_TOWER -> arrowTowerRangeFraction
+                MatchTowerCard.CANNON_TOWER -> cannonTowerRangeFraction
+                null -> map.towerRangeFraction
+            }
+            if (slot.ownerPlayerNumber == playerNumber && slot.id == selectedSlotId && towerInSlot && rangeFraction > 0f) {
+                val rangeRadius = boardWidth * rangeFraction
                 drawCircle(ownerColor.copy(alpha = 0.10f), rangeRadius, center)
                 drawCircle(ownerColor.copy(alpha = 0.88f), rangeRadius, center, style = Stroke(width = 2.dp.toPx()))
             }
-            if (slot.ownerPlayerNumber == playerNumber && isTarget && activeTowerCard != null && map.towerRangeFraction > 0f) {
-                val rangeRadius = boardWidth * map.towerRangeFraction
+            if (slot.ownerPlayerNumber == playerNumber && isTarget && activeTowerCard != null && rangeFraction > 0f) {
+                val rangeRadius = boardWidth * rangeFraction
                 val rangeColor = if (dragTargetValid) Color(0xFF62D877) else Color(0xFFE56A5F)
                 drawCircle(rangeColor.copy(alpha = 0.08f), rangeRadius, center)
                 drawCircle(rangeColor.copy(alpha = 0.72f), rangeRadius, center, style = Stroke(width = 2.dp.toPx()))
@@ -897,9 +1316,28 @@ private fun ArenaMapCanvas(
             drawCenteredPainter(
                 painter,
                 oriented(slot),
-                boardWidth * ARENA_TOWER_SIZE_FRACTION,
-                boardWidth * ARENA_TOWER_SIZE_FRACTION
+                boardWidth * ARENA_TOWER_WIDTH_FRACTION,
+                boardWidth * ARENA_TOWER_WIDTH_FRACTION / painterAspect(painter)
             )
+        }
+
+        gameState?.troops?.forEach { troop ->
+            val point = oriented(troop.point)
+            val ownerColor = if (troop.ownerPlayerNumber == 1) Color(0xFF4E9BFF) else Color(0xFFFF6759)
+            drawCircle(Color(0x8E101820), boardWidth * 0.056f, Offset(point.x, point.y + boardWidth * 0.032f))
+            drawCircle(ownerColor, boardWidth * 0.048f, point)
+            drawCircle(Color(0xFF1D2733), boardWidth * 0.048f, point, style = Stroke(width = 1.5.dp.toPx()))
+            val sprite = if (troop.card == MatchTroopCard.ESCUDERO.wireId) escuderoSprite else swordsmanSprite
+            drawTroopSprite(sprite, troop, point, boardWidth * 0.105f)
+        }
+        gameState?.projectiles?.forEach { projectile ->
+            val start = oriented(projectile.from)
+            val end = oriented(projectile.to)
+            val x = start.x + (end.x - start.x) * projectile.progress
+            val y = start.y + (end.y - start.y) * projectile.progress
+            val color = if (projectile.card == MatchTowerCard.ARROW_TOWER.wireId) Color(0xFFFFE58B) else Color(0xFFFF7C34)
+            drawCircle(color, boardWidth * 0.012f, Offset(x, y))
+            drawCircle(Color.White.copy(alpha = 0.75f), boardWidth * 0.005f, Offset(x, y))
         }
     }
 }

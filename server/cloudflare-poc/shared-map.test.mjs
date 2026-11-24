@@ -297,7 +297,8 @@ test("build_tower charges the selected cost and ignores duplicate action IDs", a
     ownerPlayerNumber: 1,
     card: "arrow_tower",
     cost: 100,
-    placedAtServerMs: saved.towers[0].placedAtServerMs
+    placedAtServerMs: saved.towers[0].placedAtServerMs,
+    nextShotAtElapsedMs: saved.towers[0].nextShotAtElapsedMs
   });
   assert.equal(saved.players[0].coinsSpent, 100);
   const sentBeforeDuplicate = harness.messages.get("uid-one").length;

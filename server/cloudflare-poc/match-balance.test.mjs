@@ -9,7 +9,7 @@ import {
 } from "./src/match-balance.mjs";
 
 test("the shared match balance contains the confirmed versioned values", () => {
-  assert.equal(MATCH_BALANCE.version, "fort-rush-2026-11-23.1");
+  assert.equal(MATCH_BALANCE.version, "fort-rush-2026-11-24.1");
   assert.equal(MATCH_BALANCE.economy.startingCoins, 150);
   assert.equal(MATCH_BALANCE.economy.maximumCoins, 1_000);
   assert.deepEqual(MATCH_BALANCE.economy.incomeBands.map((band) => band.coinsPerSecond), [5, 10]);

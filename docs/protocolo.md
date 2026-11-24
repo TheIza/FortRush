@@ -1,6 +1,6 @@
-# FortRush — Protocolo de emparejamiento y mapa
+# FortRush — Protocolo de partida
 
-Este documento describe el protocolo implementado en el prototipo actual. Incluye economía de partida y construcción de torres; todavía no define acciones de combate.
+Este documento describe los mensajes de emparejamiento, economía y combate del protocolo actual. El Worker es la autoridad: valida las acciones, simula la partida y decide el resultado.
 
 ## Evento `game_start`
 
@@ -26,8 +26,8 @@ Cuando termina la cuenta atrás, el servidor envía a cada jugador el mismo even
     "castlePositions": { "player1": { "x": 500, "y": 1677.6 }, "player2": { "x": 500, "y": 122.4 } }
   },
   "balance": {
-    "version": "fort-rush-2026-11-23.1",
-    "match": { "durationMs": 240000, "maxLivingTroopsPerPlayer": 20 },
+    "version": "fort-rush-2026-11-24.1",
+    "match": { "durationMs": 240000, "suddenDeathDurationMs": 3000, "maxLivingTroopsPerPlayer": 20 },
     "economy": {
       "startingCoins": 150,
       "maximumCoins": 1000,
@@ -49,22 +49,38 @@ Cuando termina la cuenta atrás, el servidor envía a cada jugador el mismo even
     "coinsSpent": 0,
     "coins": 150,
     "maximumCoins": 1000,
-    "balanceVersion": "fort-rush-2026-11-23.1"
+    "balanceVersion": "fort-rush-2026-11-24.1"
+  },
+  "state": {
+    "sequence": 0,
+    "phase": "IN_MATCH",
+    "elapsedMatchMs": 0,
+    "remainingMs": 240000,
+    "player1": { "wallHealth": 500, "castleHealth": 400 },
+    "player2": { "wallHealth": 500, "castleHealth": 400 },
+    "troops": [], "towers": [], "projectiles": [], "result": null,
+    "viewerPlayerNumber": 1
   }
 }
 ```
 
-El fragmento omite el detalle de las cartas y la geometría del mapa. El evento real incluye ambos completos.
+El fragmento omite el detalle de las cartas y la geometría del mapa. El evento real incluye ambos completos. `viewerPlayerNumber` cambia entre destinatarios para que cada móvil sepa cuál es su lado; el resto de la geometría y estado compartido es el mismo.
+
+## Instantáneas de combate
+
+`match.state` envía la instantánea autoritativa a ambos jugadores aproximadamente una vez por segundo y también después de acciones aceptadas o rechazadas. Incluye `sequence`, fase, tiempo, vida de muros/castillos, tropas, torres, proyectiles y resultado. El cliente descarta una instantánea con una secuencia anterior y dibuja las posiciones recibidas; no simula daño ni movimiento.
+
+Las fases principales son `IN_MATCH`, `SUDDEN_DEATH` y `FINISHED`. `remainingMs` llega a cero al comenzar la muerte súbita. `result` es `null` durante el juego y, al finalizar, incluye el ganador o `null` en caso de empate, motivo técnico, tiempo y vidas finales.
 
 ## Versión de balance
 
 - Al emparejar, el servidor copia la configuración vigente dentro del estado de esa partida.
 - `balance.version` identifica ese conjunto de reglas. Cambiar un valor de juego requiere actualizar la versión.
-- `balance` contiene duración, economía, valores aprobados de las cuatro cartas, vida de muro/castillo y recompensas por destruir el muro.
+- `balance` contiene duración, muerte súbita, economía, valores aprobados de las cuatro cartas, vida de muro/castillo y recompensas por destruir el muro.
 - `game_start` envía la misma configuración a los dos jugadores. `tower_built.economy.balanceVersion` debe coincidir con `balance.version`.
 - Android usa los costes y el ingreso recibidos para presentar el estado. Solo el servidor decide saldo, coste, validación y resultado; valores enviados por el cliente no son autoridad.
 - El generador toma del balance central el alcance de la Torre de flechas para puntuar `coverage` y publicar `map.meta.towerRange`; con el mapa lógico actual de 1000 unidades, el valor es 250. El alcance de la Torre de cañón permanece en su propio campo de balance y no se sustituye por este radio común del generador.
-- La configuración ya reúne también parámetros de combate aprobados, pero el Worker todavía no ejecuta las reglas de tropas, torres, muro, castillo ni duración. Se activarán en sus tareas de implementación; incluir un valor en el contrato no afirma que esa mecánica ya funcione.
+- El Worker ejecuta movimiento, combate de tropas, disparos de torres, daño a muro/castillo, monedas, temporizador y muerte súbita usando esta configuración versionada.
 
 ## Mapa
 
@@ -127,6 +143,32 @@ Las cartas de torre y costes aceptados por el servidor salen de la versión guar
 
 Si acepta, guarda la torre y el gasto en el Durable Object y envía `tower_built` a ambos jugadores. El evento contiene `actionId`, `slotId`, `ownerPlayerNumber`, `card` y una instantánea de economía. Si rechaza, envía `action_rejected` al solicitante con `actionId`, `slotId` y uno de estos motivos: `UNKNOWN_SLOT`, `NOT_YOUR_SLOT`, `SLOT_OCCUPIED`, `NOT_A_TOWER_CARD`, `NOT_ENOUGH_COINS`, `ON_COOLDOWN` o `INVALID_STATE`. Un identificador ya aceptado se ignora sin volver a gastar monedas ni crear otra torre.
 
-Las solicitudes durante `COUNTDOWN` o `SUDDEN_DEATH` se rechazan como `INVALID_STATE`. El cooldown sale de la configuración de la carta y ahora vale cero. El test de cooldown cambia una copia de configuración para comprobar el rechazo; no modifica el balance desplegable. La construcción no inicia ni modifica la simulación de combate. La venta de torres todavía no está conectada al protocolo.
+Las solicitudes durante `COUNTDOWN` o `SUDDEN_DEATH` se rechazan como `INVALID_STATE`. El cooldown sale de la configuración de la carta y ahora vale cero. El test de cooldown cambia una copia de configuración para comprobar el rechazo; no modifica el balance desplegable.
 
-La pantalla de arena permite seleccionar una carta de torre y tocar un hueco propio libre, o mantener la carta pulsada y arrastrarla. El cliente solo muestra huecos propios como destinos interactivos y deja los huecos rivales como elementos visuales. El círculo actual usa `map.meta.towerRange`, que representa el alcance de flechas y sirve para el generador; por ahora el mismo radio se dibuja con cualquiera de las cartas y no coincide con el alcance menor del cañón. Es una guía geométrica, no un combate simulado. Una construcción se muestra como pendiente hasta que el servidor la confirma; ante rechazo, el cliente retira el estado pendiente y presenta un mensaje. La prueba visual en dispositivos todavía está pendiente.
+La pantalla de arena permite seleccionar una carta de torre y tocar un hueco propio libre, o mantener la carta pulsada y arrastrarla. Al seleccionar una torre propia o arrastrar una carta se dibuja su alcance usando `rangeAsBoardWidth` de la versión de balance. `map.meta.towerRange` describe el alcance de flechas usado para puntuar el mapa. El servidor decide la selección del objetivo y el daño. La prueba visual en dispositivos todavía está pendiente.
+
+## Tropas, venta y rendición
+
+Despliegue de tropa:
+
+```json
+{ "type": "deploy_troop", "card": "espadachin", "position": 1000, "actionId": "uuid-de-la-accion" }
+```
+
+`position` es una distancia sobre el camino lógico. El servidor obtiene al jugador de la conexión autenticada y rechaza zonas inválidas, cartas incorrectas, falta de monedas, cooldown o exceso del límite sin cobrar. `troops_deployed` confirma la acción; `action_rejected` devuelve su motivo. Los golpes se aplican de forma simultánea. Al alcanzar el muro las tropas lo atacan; tras destruirlo, avanzan al castillo.
+
+Venta de torre:
+
+```json
+{ "type": "sell_tower", "slotId": "p1-01", "actionId": "uuid-de-la-accion" }
+```
+
+El servidor solo permite vender una torre propia durante `IN_MATCH`, devuelve el 50 % del coste redondeado hacia abajo y libera el hueco. Al aceptar envía `tower_sold` y después `match.state`.
+
+Rendición:
+
+```json
+{ "type": "match.surrender", "actionId": "uuid-de-la-accion" }
+```
+
+La acción se limita al juego normal. El Worker termina la partida y comunica el mismo resultado a los dos jugadores mediante `match.state` y `match.result`. La pantalla final muestra victoria, derrota o empate. La persistencia de resultados/recompensas y la reconexión ante una interrupción siguen pendientes.

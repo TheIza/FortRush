@@ -31,6 +31,9 @@ import org.TheIza.fortrush.data.matchmaking.MatchmakingEvent
 import org.TheIza.fortrush.data.matchmaking.MatchmakingRepository
 import org.TheIza.fortrush.data.matchmaking.MatchMap
 import org.TheIza.fortrush.data.matchmaking.MatchEconomySnapshot
+import org.TheIza.fortrush.data.matchmaking.MatchGameResult
+import org.TheIza.fortrush.data.matchmaking.MatchGameSnapshot
+import org.TheIza.fortrush.data.matchmaking.MatchTroopCard
 import org.TheIza.fortrush.data.matchmaking.MatchTowerCard
 import org.TheIza.fortrush.data.matchmaking.createDebugBotMap
 import org.TheIza.fortrush.ui.Screen.CardsScreen
@@ -53,12 +56,16 @@ enum class MainDestination { CARDS, HOME, PROFILE, MATCHMAKING }
 private fun buildTowerRejectionMessage(reason: String): String = when (reason) {
     "UNKNOWN_SLOT" -> "Ese hueco no pertenece a este mapa."
     "NOT_YOUR_SLOT" -> "Solo puedes construir en tus propios huecos."
+    "NOT_YOUR_TOWER" -> "No puedes vender esa torre."
     "SLOT_OCCUPIED" -> "Ese hueco ya tiene una torre."
     "NOT_A_TOWER_CARD" -> "Esa carta no permite construir una torre."
     "NOT_ENOUGH_COINS" -> "No tienes monedas suficientes para esa torre."
     "ON_COOLDOWN" -> "Espera antes de construir otra torre."
-    "INVALID_STATE" -> "No se puede construir durante la cuenta atrás o la muerte súbita."
-    else -> "El servidor rechazó la construcción ($reason)."
+    "INVALID_STATE" -> "La partida no está en una fase que permita esa acción."
+    "INVALID_POSITION" -> "Suelta la tropa sobre el camino en tu zona de despliegue."
+    "NOT_A_TROOP_CARD" -> "Esa carta no permite desplegar tropas."
+    "TROOP_LIMIT_REACHED" -> "Ya tienes el máximo de tropas en el camino."
+    else -> "El servidor rechazó la acción ($reason)."
 }
 
 @Composable
@@ -80,8 +87,11 @@ fun FortRushApp(userId: String, onSignOut: () -> Unit = {}) {
     var opponentNumber by remember { mutableIntStateOf(1) }
     var sharedMap by remember { mutableStateOf<MatchMap?>(null) }
     var matchEconomy by remember { mutableStateOf<MatchEconomySnapshot?>(null) }
+    var gameState by remember { mutableStateOf<MatchGameSnapshot?>(null) }
+    var matchResult by remember { mutableStateOf<MatchGameResult?>(null) }
     var towerPlacements by remember { mutableStateOf<List<ArenaTowerPlacement>>(emptyList()) }
     var pendingTowerActions by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var pendingTroopActions by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var towerBuildError by remember { mutableStateOf<String?>(null) }
     var localBotDebug by rememberSaveable(userId) { mutableStateOf(false) }
     var countdown by remember { mutableIntStateOf(0) }
@@ -99,8 +109,11 @@ fun FortRushApp(userId: String, onSignOut: () -> Unit = {}) {
         opponentNickname = null
         sharedMap = null
         matchEconomy = null
+        gameState = null
+        matchResult = null
         towerPlacements = emptyList()
         pendingTowerActions = emptyMap()
+        pendingTroopActions = emptyMap()
         towerBuildError = null
         countdown = 0
         destination = MainDestination.MATCHMAKING
@@ -126,11 +139,28 @@ fun FortRushApp(userId: String, onSignOut: () -> Unit = {}) {
                         is MatchmakingEvent.Started -> {
                             sharedMap = event.map
                             matchEconomy = event.economy
-                            towerPlacements = emptyList()
+                            gameState = event.state
+                            matchResult = event.state.result
+                            towerPlacements = arenaTowers(event.state, event.map)
                             pendingTowerActions = emptyMap()
+                            pendingTroopActions = emptyMap()
                             towerBuildError = null
                             matchmakingStage = MatchmakingStage.STARTED
                         }
+                        is MatchmakingEvent.GameState -> {
+                            if (gameState == null || event.state.sequence >= gameState!!.sequence) {
+                                gameState = event.state
+                                sharedMap?.let { towerPlacements = arenaTowers(event.state, it) }
+                                matchEconomy = event.economy
+                                if (event.state.result != null) matchResult = event.state.result
+                            }
+                        }
+                        is MatchmakingEvent.TroopsDeployed -> {
+                            pendingTroopActions = pendingTroopActions - event.actionId
+                            matchEconomy = event.economy
+                            towerBuildError = null
+                        }
+                        is MatchmakingEvent.MatchResult -> { matchResult = event.result }
                         is MatchmakingEvent.TowerBuilt -> {
                             val owner = event.ownerPlayerNumber
                             val slotIndex = sharedMap?.slotMetadata
@@ -156,7 +186,14 @@ fun FortRushApp(userId: String, onSignOut: () -> Unit = {}) {
                         }
                         is MatchmakingEvent.ActionRejected -> {
                             pendingTowerActions = pendingTowerActions - event.actionId
+                            pendingTroopActions = pendingTroopActions - event.actionId
                             towerBuildError = buildTowerRejectionMessage(event.reason)
+                        }
+                        is MatchmakingEvent.TowerSold -> {
+                            pendingTowerActions = pendingTowerActions - event.actionId
+                            towerPlacements = towerPlacements.filterNot { it.slotId == event.slotId }
+                            matchEconomy = event.economy
+                            towerBuildError = "Torre vendida: +${event.refund} monedas."
                         }
                         MatchmakingEvent.QueueCancelled -> {
                             matchmakingConnection?.close()
@@ -197,6 +234,8 @@ fun FortRushApp(userId: String, onSignOut: () -> Unit = {}) {
         sharedMap = createDebugBotMap()
         val now = System.currentTimeMillis()
         matchEconomy = MatchEconomySnapshot(150, 5, now, now, 0)
+        gameState = null
+        matchResult = null
         towerPlacements = emptyList()
         pendingTowerActions = emptyMap()
         towerBuildError = null
@@ -210,6 +249,8 @@ fun FortRushApp(userId: String, onSignOut: () -> Unit = {}) {
         matchmakingStage = MatchmakingStage.SEARCHING
         sharedMap = null
         matchEconomy = null
+        gameState = null
+        matchResult = null
         towerPlacements = emptyList()
         pendingTowerActions = emptyMap()
         towerBuildError = null
@@ -276,6 +317,40 @@ fun FortRushApp(userId: String, onSignOut: () -> Unit = {}) {
         pendingTowerActions = pendingTowerActions + (actionId to slotId)
         towerBuildError = null
         return true
+    }
+
+    fun requestTroopDeploy(card: MatchTroopCard, position: Float): Boolean {
+        if (matchmakingStage != MatchmakingStage.STARTED || localBotDebug || gameState?.phase != "IN_MATCH") return false
+        val actionId = matchmakingConnection?.deployTroop(card, position) ?: return false
+        pendingTroopActions = pendingTroopActions + (actionId to card.wireId)
+        towerBuildError = null
+        return true
+    }
+
+    fun requestTowerSale(slotId: String): Boolean {
+        if (matchmakingStage != MatchmakingStage.STARTED || localBotDebug || gameState?.phase != "IN_MATCH") return false
+        val actionId = matchmakingConnection?.sellTower(slotId) ?: return false
+        pendingTowerActions = pendingTowerActions + (actionId to slotId)
+        towerBuildError = null
+        return true
+    }
+
+    fun surrender() {
+        if (matchmakingStage == MatchmakingStage.STARTED && !localBotDebug) matchmakingConnection?.surrender()
+    }
+
+    fun returnHomeAfterMatch() {
+        matchmakingConnection?.close()
+        matchmakingConnection = null
+        matchmakingStage = MatchmakingStage.SEARCHING
+        sharedMap = null
+        gameState = null
+        matchResult = null
+        matchEconomy = null
+        towerPlacements = emptyList()
+        pendingTowerActions = emptyMap()
+        pendingTroopActions = emptyMap()
+        destination = MainDestination.HOME
     }
 
     LaunchedEffect(userId, refreshKey) {
@@ -379,12 +454,19 @@ fun FortRushApp(userId: String, onSignOut: () -> Unit = {}) {
                                 map = arenaMap,
                                 playerNumber = opponentNumber,
                                 opponentNickname = opponentNickname.orEmpty(),
+                                gameState = gameState,
+                                matchResult = matchResult,
                                 economy = matchEconomy,
                                 towerPlacements = towerPlacements,
                                 pendingSlotIds = pendingTowerActions.values.toSet(),
                                 buildError = towerBuildError,
-                                isMatchActive = matchmakingStage == MatchmakingStage.STARTED,
+                                isMatchActive = gameState?.phase == "IN_MATCH" || localBotDebug,
                                 onBuildTower = ::requestTowerBuild,
+                                onDeployTroop = ::requestTroopDeploy,
+                                onSellTower = ::requestTowerSale,
+                                onSurrender = ::surrender,
+                                onReturnHome = ::returnHomeAfterMatch,
+                                pendingTroopCards = pendingTroopActions.values.toSet(),
                                 onClearBuildError = { towerBuildError = null },
                                 isDebugBotMode = localBotDebug,
                                 onExitDebug = if (localBotDebug) ::exitDebugBotMatch else null
@@ -430,6 +512,17 @@ fun FortRushApp(userId: String, onSignOut: () -> Unit = {}) {
         }
     }
 }
+
+private fun arenaTowers(state: MatchGameSnapshot, map: MatchMap): List<ArenaTowerPlacement> =
+    state.towers.mapNotNull { tower ->
+        val slot = map.slotMetadata.firstOrNull { it.id == tower.slotId } ?: return@mapNotNull null
+        val kind = when (tower.card) {
+            MatchTowerCard.ARROW_TOWER.wireId -> ArenaTowerKind.ARROW
+            MatchTowerCard.CANNON_TOWER.wireId -> ArenaTowerKind.CANNON
+            else -> return@mapNotNull null
+        }
+        ArenaTowerPlacement(tower.ownerPlayerNumber, slot.slotIndex, kind, tower.slotId)
+    }
 
 @Composable
 private fun NicknameCooldownDialog(remainingMs: Long, onDismiss: () -> Unit) {

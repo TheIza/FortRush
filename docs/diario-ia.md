@@ -122,3 +122,27 @@ Responder a la revisión visual de la arena: muralla continua de borde a borde, 
 ### Siguiente paso
 - Repetir la suite completa, registrar el resultado y empezar la simulación autoritativa de tropas y combate.
 - La medición de cuota/carga de una partida de cuatro minutos sigue pendiente; las cuotas del plan Free no equivalen a una garantía de disponibilidad.
+## 24/11/2026 — Punto 10–20: primera partida jugable
+
+### Objetivo y trabajo realizado
+- Continuar desde `main` después de las tareas de balance, mapas, cola y carga.
+- Implementar en el Worker la simulación determinista por paso fijo: despliegue de Espadachín/Escudero, movimiento por distancia del camino, enfrentamientos simultáneos, torres, proyectiles, muro/castillo, economía, venta, rendición, temporizador y muerte súbita.
+- Conectar Android con las instantáneas de combate del Worker, el despliegue de tropas en el camino, los estados de muros/castillos y la pantalla de resultado.
+- Documentar mensajes nuevos en `docs/protocolo.md` y registrar lo pendiente sin dar por probada una partida real.
+
+### Decisiones y correcciones
+- Se conservó el balance que ya estaba aprobado y versionado; no se inventaron costes o estadísticas nuevos.
+- En una prueba falló la comparación literal de los mensajes `game_start`, porque `viewerPlayerNumber` debe ser distinto para cada cliente. Se corrigió el test para comparar el contenido compartido y verificar por separado el número local.
+- Android usa spritesheets existentes para dibujar las tropas y elige el punto más cercano del camino dentro de la zona válida del jugador. La validación definitiva sigue en el Worker.
+
+### Comprobaciones reales
+- `npm test`: 53/53 tests pasaron; incluye 1000 mapas, combate, torres, monedas, muro, muerte súbita, cola, carga y API de perfil simulada.
+- `:app:compileDebugKotlin`: correcto.
+- `:app:testDebugUnitTest`: correcto, incluidos parseo de snapshot/resultado y conversión de toque a posición de camino.
+- `:app:assembleDebug`: correcto; generó `app/build/outputs/apk/debug/app-debug.apk`.
+- No se ha desplegado esta versión ni se ha probado el juego en dos móviles reales. No se ejecutaron pruebas con credenciales Firebase auténticas.
+
+### Pendiente
+- Generar la APK final, desplegar la versión desde `main`, comprobar `/health` y jugar con dos cuentas distintas.
+- La reconexión tras corte, persistencia del resultado/recompensa del perfil y prueba de reinicio de Durable Object siguen pendientes.
+- Aprendizaje personal: pendiente de que la usuaria lo redacte o confirme.

@@ -8,6 +8,14 @@ import {
   incomeRateAtElapsedMs,
   MATCH_BALANCE
 } from "./match-balance.mjs";
+import {
+  advanceCombat,
+  createGameSnapshot,
+  deployTroops as deployTroopAction,
+  initializeCombatState,
+  sellTower as sellTowerAction,
+  surrenderMatch as surrenderMatchAction
+} from "./match-engine.mjs";
 
 const FIREBASE_JWKS = createRemoteJWKSet(
   new URL("https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com")
@@ -114,6 +122,30 @@ function rejectBuild(socket, actionId, slotId, reason) {
   send(socket, "action_rejected", { actionId, slotId, reason });
 }
 
+function publishGameState(ctx, match, nowMs = Date.now()) {
+  if (!match?.game) return;
+  match.game.nextSnapshotSequence += 1;
+  const socketsByUid = new Map(ctx.getWebSockets().map((socket) => [socket.deserializeAttachment()?.uid, socket]));
+  for (const player of match.players) {
+    const socket = socketsByUid.get(player.uid);
+    send(socket, "match.state", {
+      matchId: match.matchId,
+      state: createGameSnapshot(match, player.playerNumber, nowMs),
+      economy: economySnapshot(match, player, nowMs)
+    });
+  }
+  if (match.game.result && !match.game.resultBroadcasted) {
+    match.game.resultBroadcasted = true;
+    for (const player of match.players) {
+      send(socketsByUid.get(player.uid), "match.result", {
+        matchId: match.matchId,
+        balanceVersion: match.balance.version,
+        ...match.game.result
+      });
+    }
+  }
+}
+
 export class WebSocketProbe {
   constructor(ctx, env, identityVerifier = verifyFirebaseIdentity) {
     this.ctx = ctx;
@@ -150,7 +182,10 @@ export class WebSocketProbe {
     if (payload.type === "queue.join") return this.joinQueue(socket, attachment, payload);
     if (payload.type === "queue.cancel") return this.cancelQueue(socket, attachment, payload);
     if (payload.type === "match.loaded") return this.markLoaded(socket, attachment, payload);
+    if (payload.type === "deploy_troop") return this.deployTroop(socket, attachment, payload);
     if (payload.type === "build_tower") return this.buildTower(socket, attachment, payload);
+    if (payload.type === "sell_tower") return this.sellTower(socket, attachment, payload);
+    if (payload.type === "match.surrender") return this.surrenderMatch(socket, attachment, payload);
     send(socket, "error", { code: "UNKNOWN_MESSAGE", message: "Acción no reconocida." });
   }
 
@@ -328,6 +363,14 @@ export class WebSocketProbe {
       if (queue.length >= 2) await this.pairQueue(queue);
       return;
     }
+    if (["IN_MATCH", "SUDDEN_DEATH"].includes(match.phase)) {
+      advanceCombat(match, Date.now());
+      await this.ctx.storage.put("match", match);
+      publishGameState(this.ctx, match);
+      if (match.phase === "FINISHED") await this.ctx.storage.deleteAlarm?.();
+      else await this.ctx.storage.setAlarm?.(Date.now() + 1_000);
+      return;
+    }
     if (match.phase !== "COUNTDOWN") return;
     if (match.countdown > 1) {
       match.countdown -= 1;
@@ -336,16 +379,8 @@ export class WebSocketProbe {
       await this.ctx.storage.setAlarm(Date.now() + 1_000);
       return;
     }
-    match.phase = "IN_MATCH";
-    match.startedAtServerMs = Date.now();
-    match.towers = [];
-    match.players.forEach((player) => {
-      player.coinsAtLastUpdate = (match.balance ?? MATCH_BALANCE).economy.startingCoins;
-      player.incomeAppliedThroughSecond = 0;
-      player.coinsSpent = 0;
-      player.lastTowerBuiltAtMs = null;
-      player.processedActionIds = [];
-    });
+    match.balance ??= cloneMatchBalance();
+    initializeCombatState(match, Date.now());
     await this.ctx.storage.put("match", match);
     this.ctx.getWebSockets().forEach((socket) => {
       const attachment = socket.deserializeAttachment?.() ?? {};
@@ -354,9 +389,47 @@ export class WebSocketProbe {
         matchId: match.matchId,
         map: match.map,
         balance: match.balance ?? cloneMatchBalance(),
-        economy: economySnapshot(match, player, match.startedAtServerMs)
+        economy: economySnapshot(match, player, match.startedAtServerMs),
+        state: createGameSnapshot(match, player?.playerNumber ?? 0, match.startedAtServerMs)
       });
     });
+    await this.ctx.storage.setAlarm?.(Date.now() + 1_000);
+  }
+
+  async deployTroop(socket, attachment, payload) {
+    const actionId = typeof payload.actionId === "string" ? payload.actionId : "";
+    const card = typeof payload.card === "string" ? payload.card : "";
+    const position = typeof payload.position === "number" ? payload.position : NaN;
+    const nowMs = Date.now();
+    const match = await this.ctx.storage.get("match");
+    const player = match?.players?.find((entry) =>
+      entry.uid === attachment.uid && entry.playerNumber === attachment.playerNumber
+    );
+    if (!match || match.matchId !== attachment.matchId || !player || !match.game) {
+      send(socket, "action_rejected", { actionId, reason: "INVALID_STATE" });
+      return;
+    }
+    advanceCombat(match, nowMs);
+    const result = deployTroopAction(match, player.playerNumber, card, position, actionId, nowMs);
+    if (!result.ok) {
+      await this.ctx.storage.put("match", match);
+      send(socket, "action_rejected", { actionId, reason: result.reason });
+      publishGameState(this.ctx, match, nowMs);
+      if (match.phase === "FINISHED") await this.ctx.storage.deleteAlarm?.();
+      return;
+    }
+    await this.ctx.storage.put("match", match);
+    const socketsByUid = new Map(this.ctx.getWebSockets().map((candidate) => [candidate.deserializeAttachment()?.uid, candidate]));
+    for (const recipient of match.players) {
+      send(socketsByUid.get(recipient.uid), "troops_deployed", {
+        actionId,
+        ownerPlayerNumber: player.playerNumber,
+        card,
+        troopIds: result.troopIds,
+        economy: economySnapshot(match, recipient, nowMs)
+      });
+    }
+    publishGameState(this.ctx, match, nowMs);
   }
 
   async buildTower(socket, attachment, payload) {
@@ -371,9 +444,18 @@ export class WebSocketProbe {
     const player = match?.players?.find((entry) =>
       entry.uid === attachment.uid && entry.playerNumber === attachment.playerNumber
     );
-    if (!match || match.matchId !== attachment.matchId || !player ||
-        match.phase !== "IN_MATCH" || !Number.isFinite(match.startedAtServerMs)) {
+    if (!match || match.matchId !== attachment.matchId || !player || !Number.isFinite(match.startedAtServerMs)) {
       rejectBuild(socket, actionId, slotId, "INVALID_STATE");
+      return;
+    }
+    if (match.game) {
+      advanceCombat(match, Date.now());
+      await this.ctx.storage.put("match", match);
+    }
+    if (match.phase !== "IN_MATCH") {
+      await this.ctx.storage.put("match", match);
+      rejectBuild(socket, actionId, slotId, "INVALID_STATE");
+      publishGameState(this.ctx, match);
       return;
     }
 
@@ -420,7 +502,8 @@ export class WebSocketProbe {
       ownerPlayerNumber: player.playerNumber,
       card,
       cost: towerDefinition.cost,
-      placedAtServerMs: nowMs
+      placedAtServerMs: nowMs,
+      nextShotAtElapsedMs: Math.max(0, nowMs - match.startedAtServerMs) + towerDefinition.attackIntervalMs
     };
     player.coinsAtLastUpdate = availableCoins - towerDefinition.cost;
     player.incomeAppliedThroughSecond = Math.floor(Math.max(0, nowMs - match.startedAtServerMs) / 1_000);
@@ -441,6 +524,64 @@ export class WebSocketProbe {
         economy: economySnapshot(match, recipient, nowMs)
       });
     }
+    publishGameState(this.ctx, match, nowMs);
+  }
+
+  async sellTower(socket, attachment, payload) {
+    const actionId = typeof payload.actionId === "string" ? payload.actionId : "";
+    const slotId = typeof payload.slotId === "string" ? payload.slotId : "";
+    const match = await this.ctx.storage.get("match");
+    const player = match?.players?.find((entry) =>
+      entry.uid === attachment.uid && entry.playerNumber === attachment.playerNumber
+    );
+    if (!match || match.matchId !== attachment.matchId || !player || !match.game) {
+      send(socket, "action_rejected", { actionId, slotId, reason: "INVALID_STATE" });
+      return;
+    }
+    const nowMs = Date.now();
+    advanceCombat(match, nowMs);
+    const result = sellTowerAction(match, player.playerNumber, slotId, actionId, nowMs);
+    if (!result.ok) {
+      await this.ctx.storage.put("match", match);
+      send(socket, "action_rejected", { actionId, slotId, reason: result.reason });
+      publishGameState(this.ctx, match, nowMs);
+      return;
+    }
+    await this.ctx.storage.put("match", match);
+    const socketsByUid = new Map(this.ctx.getWebSockets().map((candidate) => [candidate.deserializeAttachment()?.uid, candidate]));
+    for (const recipient of match.players) {
+      send(socketsByUid.get(recipient.uid), "tower_sold", {
+        actionId,
+        slotId,
+        ownerPlayerNumber: player.playerNumber,
+        refund: result.refund,
+        economy: economySnapshot(match, recipient, nowMs)
+      });
+    }
+    publishGameState(this.ctx, match, nowMs);
+  }
+
+  async surrenderMatch(socket, attachment, payload) {
+    const match = await this.ctx.storage.get("match");
+    const player = match?.players?.find((entry) =>
+      entry.uid === attachment.uid && entry.playerNumber === attachment.playerNumber
+    );
+    if (!match || match.matchId !== attachment.matchId || !player || !match.game) {
+      send(socket, "action_rejected", { actionId: payload.actionId ?? "", reason: "INVALID_STATE" });
+      return;
+    }
+    const nowMs = Date.now();
+    advanceCombat(match, nowMs);
+    const result = surrenderMatchAction(match, player.playerNumber, nowMs);
+    if (!result.ok) {
+      await this.ctx.storage.put("match", match);
+      send(socket, "action_rejected", { actionId: payload.actionId ?? "", reason: result.reason });
+      publishGameState(this.ctx, match, nowMs);
+      return;
+    }
+    await this.ctx.storage.put("match", match);
+    publishGameState(this.ctx, match, nowMs);
+    await this.ctx.storage.deleteAlarm?.();
   }
 
   async webSocketClose(socket) {

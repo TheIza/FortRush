@@ -15,7 +15,19 @@ sealed interface MatchmakingEvent {
     data class Waiting(val position: Int) : MatchmakingEvent
     data class Found(val matchId: String, val opponentNickname: String, val playerNumber: Int, val map: MatchMap) : MatchmakingEvent
     data class Countdown(val seconds: Int) : MatchmakingEvent
-    data class Started(val matchId: String, val map: MatchMap, val economy: MatchEconomySnapshot) : MatchmakingEvent
+    data class Started(
+        val matchId: String,
+        val map: MatchMap,
+        val economy: MatchEconomySnapshot,
+        val state: MatchGameSnapshot
+    ) : MatchmakingEvent
+    data class GameState(val state: MatchGameSnapshot, val economy: MatchEconomySnapshot) : MatchmakingEvent
+    data class TroopsDeployed(
+        val actionId: String,
+        val ownerPlayerNumber: Int,
+        val card: String,
+        val economy: MatchEconomySnapshot
+    ) : MatchmakingEvent
     data class TowerBuilt(
         val actionId: String,
         val slotId: String,
@@ -24,6 +36,14 @@ sealed interface MatchmakingEvent {
         val economy: MatchEconomySnapshot
     ) : MatchmakingEvent
     data class ActionRejected(val actionId: String, val slotId: String, val reason: String) : MatchmakingEvent
+    data class TowerSold(
+        val actionId: String,
+        val slotId: String,
+        val ownerPlayerNumber: Int,
+        val refund: Int,
+        val economy: MatchEconomySnapshot
+    ) : MatchmakingEvent
+    data class MatchResult(val result: MatchGameResult) : MatchmakingEvent
     data object QueueCancelled : MatchmakingEvent
     data class Cancelled(val reason: String, val requeued: Boolean) : MatchmakingEvent
     data class Failure(val message: String) : MatchmakingEvent
@@ -34,6 +54,11 @@ enum class MatchTowerCard(val wireId: String, val cost: Int, val displayName: St
     CANNON_TOWER("cannon_tower", 130, "Torre de cañón")
 }
 
+enum class MatchTroopCard(val wireId: String, val cost: Int, val displayName: String, val imageResourceName: String) {
+    ESPADACHIN("espadachin", 45, "Espadachín", "carta_espadachines"),
+    ESCUDERO("escudero", 55, "Escudero", "carta_escuderos")
+}
+
 data class MatchIncomeBand(val fromElapsedMs: Long, val untilElapsedMs: Long, val coinsPerSecond: Int)
 
 data class MatchBalanceConfig(
@@ -42,9 +67,13 @@ data class MatchBalanceConfig(
     val startingCoins: Int,
     val maximumCoins: Int,
     val incomeBands: List<MatchIncomeBand>,
-    val towerCosts: Map<String, Int>
+    val towerCosts: Map<String, Int>,
+    val troopCosts: Map<String, Int> = emptyMap(),
+    val towerRangeFractions: Map<String, Float> = emptyMap()
 ) {
     fun towerCost(card: MatchTowerCard): Int = towerCosts[card.wireId] ?: card.cost
+    fun troopCost(card: MatchTroopCard): Int = troopCosts[card.wireId] ?: card.cost
+    fun towerRangeFraction(card: MatchTowerCard): Float = towerRangeFractions[card.wireId] ?: 0f
 
     fun incomeEarnedThroughSecond(elapsedSecond: Long): Long {
         val second = elapsedSecond.coerceAtLeast(0L)
@@ -107,11 +136,20 @@ internal fun JSONObject.matchBalanceConfig(): MatchBalanceConfig? {
         val cost = towers.optJSONObject(card.wireId)?.optInt("cost", -1) ?: -1
         card.wireId to cost
     }
+    val towerRanges = listOf(MatchTowerCard.ARROW_TOWER, MatchTowerCard.CANNON_TOWER).associate { card ->
+        val range = towers.optJSONObject(card.wireId)?.optDouble("rangeAsBoardWidth", Double.NaN)?.toFloat() ?: Float.NaN
+        card.wireId to range
+    }
+    val troops = config.optJSONObject("cards")?.optJSONObject("troops") ?: return null
+    val troopCosts = MatchTroopCard.entries.associate { card ->
+        card.wireId to (troops.optJSONObject(card.wireId)?.optInt("cost", -1) ?: -1)
+    }
     val bandsAreContiguous = bands.zipWithNext().all { (left, right) -> left.untilElapsedMs == right.fromElapsedMs }
     if (matchDurationMs <= 0L || startingCoins < 0 || maximumCoins < startingCoins ||
         bands.size != rawBands.length() || bands.isEmpty() || bands.first().fromElapsedMs != 0L ||
-        bands.last().untilElapsedMs != matchDurationMs || !bandsAreContiguous || towerCosts.values.any { it <= 0 }) return null
-    return MatchBalanceConfig(version, matchDurationMs, startingCoins, maximumCoins, bands, towerCosts)
+        bands.last().untilElapsedMs != matchDurationMs || !bandsAreContiguous || towerCosts.values.any { it <= 0 } ||
+        troopCosts.values.any { it <= 0 } || towerRanges.values.any { !it.isFinite() || it <= 0f }) return null
+    return MatchBalanceConfig(version, matchDurationMs, startingCoins, maximumCoins, bands, towerCosts, troopCosts, towerRanges)
 }
 
 internal fun JSONObject.economySnapshot(balance: MatchBalanceConfig? = null): MatchEconomySnapshot? {
@@ -137,6 +175,46 @@ internal fun JSONObject.economySnapshot(balance: MatchBalanceConfig? = null): Ma
 }
 
 data class MatchPoint(val x: Float, val y: Float)
+data class MatchGameTroop(
+    val id: String,
+    val ownerPlayerNumber: Int,
+    val card: String,
+    val point: MatchPoint,
+    val health: Float,
+    val maxHealth: Float
+)
+data class MatchGameTower(val slotId: String, val ownerPlayerNumber: Int, val card: String)
+data class MatchGameProjectile(
+    val id: String,
+    val ownerPlayerNumber: Int,
+    val card: String,
+    val from: MatchPoint,
+    val to: MatchPoint,
+    val progress: Float
+)
+data class MatchPlayerVitals(val wallHealth: Float, val castleHealth: Float)
+data class MatchGameResult(
+    val winnerPlayerNumber: Int?,
+    val reason: String,
+    val elapsedMatchMs: Long,
+    val player1WallHealth: Float,
+    val player2WallHealth: Float,
+    val player1CastleHealth: Float,
+    val player2CastleHealth: Float
+)
+data class MatchGameSnapshot(
+    val sequence: Long,
+    val phase: String,
+    val elapsedMatchMs: Long,
+    val remainingMs: Long,
+    val player1: MatchPlayerVitals,
+    val player2: MatchPlayerVitals,
+    val troops: List<MatchGameTroop>,
+    val towers: List<MatchGameTower>,
+    val projectiles: List<MatchGameProjectile>,
+    val result: MatchGameResult?,
+    val viewerPlayerNumber: Int
+)
 data class MatchDecoration(val kind: String, val point: MatchPoint, val scale: Float)
 data class MatchCoverageRange(val start: Float, val end: Float)
 data class MatchTowerSlot(
@@ -159,8 +237,81 @@ data class MatchMap(
     val slotMetadata: List<MatchTowerSlot> = emptyList(),
     val pathWidthFraction: Float = 0.13f,
     val slotDiameterFraction: Float = 0.18f,
-    val towerRangeFraction: Float = 0f
+    val towerRangeFraction: Float = 0f,
+    val pathCumulativeLengths: List<Float> = emptyList(),
+    val pathTotalLength: Float = 0f
 )
+
+private fun JSONObject.gameResult(): MatchGameResult? {
+    if (isNull("result")) return null
+    val result = optJSONObject("result") ?: return null
+    val winner = result.optInt("winnerPlayerNumber", -1).takeIf { it in 1..2 }
+    return MatchGameResult(
+        winnerPlayerNumber = winner,
+        reason = result.optString("reason", "UNKNOWN"),
+        elapsedMatchMs = result.optLong("elapsedMatchMs", 0L),
+        player1WallHealth = result.optDouble("player1WallHealth", 0.0).toFloat(),
+        player2WallHealth = result.optDouble("player2WallHealth", 0.0).toFloat(),
+        player1CastleHealth = result.optDouble("player1CastleHealth", 0.0).toFloat(),
+        player2CastleHealth = result.optDouble("player2CastleHealth", 0.0).toFloat()
+    )
+}
+
+internal fun JSONObject.gameSnapshot(): MatchGameSnapshot? {
+    val phase = optString("phase").takeIf(String::isNotBlank) ?: return null
+    val first = optJSONObject("player1") ?: return null
+    val second = optJSONObject("player2") ?: return null
+    fun JSONObject.vitals() = MatchPlayerVitals(
+        wallHealth = optDouble("wallHealth", 0.0).toFloat(),
+        castleHealth = optDouble("castleHealth", 0.0).toFloat()
+    )
+    val troops = optJSONArray("troops") ?: return null
+    val parsedTroops = (0 until troops.length()).mapNotNull { index ->
+        val item = troops.optJSONObject(index) ?: return@mapNotNull null
+        val owner = item.optInt("ownerPlayerNumber", 0)
+        val point = item.matchPoint() ?: return@mapNotNull null
+        val health = item.optDouble("health", Double.NaN).toFloat()
+        val maxHealth = item.optDouble("maxHealth", Double.NaN).toFloat()
+        if (owner !in 1..2 || !health.isFinite() || !maxHealth.isFinite() || maxHealth <= 0f) return@mapNotNull null
+        MatchGameTroop(item.optString("id"), owner, item.optString("card"), point, health, maxHealth)
+    }
+    val towers = optJSONArray("towers") ?: return null
+    val parsedTowers = (0 until towers.length()).mapNotNull { index ->
+        val item = towers.optJSONObject(index) ?: return@mapNotNull null
+        val owner = item.optInt("ownerPlayerNumber", 0)
+        if (owner !in 1..2) null else MatchGameTower(item.optString("slotId"), owner, item.optString("card"))
+    }
+    val projectiles = optJSONArray("projectiles") ?: return null
+    val parsedProjectiles = (0 until projectiles.length()).mapNotNull { index ->
+        val item = projectiles.optJSONObject(index) ?: return@mapNotNull null
+        val owner = item.optInt("ownerPlayerNumber", 0)
+        val from = item.normalizedPoint("fromX", "fromY")
+        val to = item.normalizedPoint("toX", "toY")
+        if (owner !in 1..2 || from == null || to == null) null else MatchGameProjectile(
+            item.optString("id"), owner, item.optString("card"), from, to,
+            item.optDouble("progress", 0.0).toFloat().coerceIn(0f, 1f)
+        )
+    }
+    val result = if (has("result") && !isNull("result")) gameResult() else null
+    return MatchGameSnapshot(
+        sequence = optLong("sequence", 0L),
+        phase = phase,
+        elapsedMatchMs = optLong("elapsedMatchMs", 0L),
+        remainingMs = optLong("remainingMs", 0L),
+        player1 = first.vitals(),
+        player2 = second.vitals(),
+        troops = parsedTroops,
+        towers = parsedTowers,
+        projectiles = parsedProjectiles,
+        result = result,
+        viewerPlayerNumber = optInt("viewerPlayerNumber", 0)
+    )
+}
+
+internal fun JSONObject.resultEvent(): MatchGameResult? {
+    val wrapper = JSONObject().put("result", this)
+    return wrapper.gameResult()
+}
 
 private fun JSONObject.points(key: String): List<MatchPoint> {
     val array = optJSONArray(key) ?: return emptyList()
@@ -188,6 +339,12 @@ private fun JSONObject.worldPoint(width: Float, height: Float): MatchPoint? {
 private fun JSONObject.worldPoint(parent: String, key: String, width: Float, height: Float): MatchPoint? =
     optJSONObject(parent)?.optJSONObject(key)?.worldPoint(width, height)
 
+private fun JSONObject.normalizedPoint(xKey: String, yKey: String): MatchPoint? {
+    val x = optDouble(xKey, Double.NaN).toFloat()
+    val y = optDouble(yKey, Double.NaN).toFloat()
+    return if (x.isFinite() && y.isFinite() && x in 0f..1f && y in 0f..1f) MatchPoint(x, y) else null
+}
+
 private fun parseV2Map(json: JSONObject, pathObject: JSONObject): MatchMap? {
     val width = json.optDouble("width", Double.NaN).toFloat()
     val height = json.optDouble("height", Double.NaN).toFloat()
@@ -198,6 +355,10 @@ private fun parseV2Map(json: JSONObject, pathObject: JSONObject): MatchMap? {
         pathArray.optJSONObject(index)?.worldPoint(width, height)
     }
     if (path.size < 5 || !totalLength.isFinite() || totalLength <= 0f) return null
+    val rawCumulative = pathObject.optJSONArray("cumLen") ?: return null
+    val cumulative = (0 until rawCumulative.length()).map { rawCumulative.optDouble(it, Double.NaN).toFloat() }
+    if (cumulative.size != path.size || cumulative.firstOrNull() != 0f || cumulative.lastOrNull() != totalLength ||
+        cumulative.zipWithNext().any { (left, right) -> !left.isFinite() || right <= left }) return null
 
     val slotsArray = json.optJSONArray("slots") ?: return null
     val slotMetadata = mutableListOf<MatchTowerSlot>()
@@ -252,7 +413,9 @@ private fun parseV2Map(json: JSONObject, pathObject: JSONObject): MatchMap? {
         slotMetadata = slotMetadata,
         pathWidthFraction = (pathWidth / width).coerceIn(0.02f, 0.20f),
         slotDiameterFraction = (slotRadius * 2f / width).coerceIn(0.04f, 0.20f),
-        towerRangeFraction = (towerRange / width).coerceIn(0.01f, 0.50f)
+        towerRangeFraction = (towerRange / width).coerceIn(0.01f, 0.50f),
+        pathCumulativeLengths = cumulative,
+        pathTotalLength = totalLength
     )
     return map.copy(decorations = MapDecorationGenerator.generate(map))
 }
@@ -307,6 +470,29 @@ class MatchmakingConnection internal constructor(private val socket: WebSocket) 
                 .put("actionId", actionId)
                 .toString()
         )
+        return actionId.takeIf { sent }
+    }
+
+    fun deployTroop(card: MatchTroopCard, position: Float): String? {
+        val actionId = UUID.randomUUID().toString()
+        val sent = socket.send(
+            JSONObject().put("type", "deploy_troop").put("card", card.wireId)
+                .put("position", position.toDouble()).put("actionId", actionId).toString()
+        )
+        return actionId.takeIf { sent }
+    }
+
+    fun sellTower(slotId: String): String? {
+        val actionId = UUID.randomUUID().toString()
+        val sent = socket.send(JSONObject().put("type", "sell_tower").put("slotId", slotId)
+            .put("actionId", actionId).toString())
+        return actionId.takeIf { sent }
+    }
+
+    fun surrender(): String? {
+        val actionId = UUID.randomUUID().toString()
+        val sent = socket.send(JSONObject().put("type", "match.surrender")
+            .put("actionId", actionId).toString())
         return actionId.takeIf { sent }
     }
 }
@@ -372,14 +558,16 @@ class MatchmakingRepository {
                             val map = json.optJSONObject("map")?.let(::parseMap)
                             val balance = json.matchBalanceConfig()
                             val economy = json.economySnapshot(balance)
+                            val state = json.optJSONObject("state")?.gameSnapshot()
                             if (map == null) onEvent(MatchmakingEvent.Failure("El servidor inició la partida con un mapa no válido."))
                             else if (balance == null) onEvent(MatchmakingEvent.Failure("El servidor no envió la versión de balance de esta partida."))
                             else if (economy == null) onEvent(MatchmakingEvent.Failure("El servidor inició la partida sin datos de economía válidos."))
+                            else if (state == null) onEvent(MatchmakingEvent.Failure("El servidor inició la partida sin el estado de combate."))
                             else {
                                 activeBalance = balance
                                 gameStartReceived = true
                                 pendingMap = map
-                                onEvent(MatchmakingEvent.Started(json.optString("matchId"), map, economy))
+                                onEvent(MatchmakingEvent.Started(json.optString("matchId"), map, economy, state))
                             }
                         }
                         "match.started" -> if (!gameStartReceived) {
@@ -390,8 +578,25 @@ class MatchmakingRepository {
                                 onEvent(MatchmakingEvent.Started(
                                     json.optString("matchId"),
                                     map,
-                                    MatchEconomySnapshot(150, 5, now, now, 0)
+                                    MatchEconomySnapshot(150, 5, now, now, 0),
+                                    MatchGameSnapshot(0, "IN_MATCH", 0, 240_000,
+                                        MatchPlayerVitals(500f, 400f), MatchPlayerVitals(500f, 400f),
+                                        emptyList(), emptyList(), emptyList(), null, json.optInt("playerNumber", 1))
                                 ))
+                            }
+                        }
+                        "match.state" -> {
+                            val state = json.optJSONObject("state")?.gameSnapshot()
+                            val economy = json.economySnapshot(activeBalance)
+                            if (state != null && economy != null) onEvent(MatchmakingEvent.GameState(state, economy))
+                        }
+                        "match.result" -> json.resultEvent()?.let { onEvent(MatchmakingEvent.MatchResult(it)) }
+                        "troops_deployed" -> {
+                            val economy = json.economySnapshot(activeBalance)
+                            val owner = json.optInt("ownerPlayerNumber", 0)
+                            val actionId = json.optString("actionId")
+                            if (economy != null && owner in 1..2 && actionId.isNotBlank()) {
+                                onEvent(MatchmakingEvent.TroopsDeployed(actionId, owner, json.optString("card"), economy))
                             }
                         }
                         "tower_built" -> {
@@ -403,6 +608,15 @@ class MatchmakingRepository {
                             if (economy != null && owner in 1..2 && actionId.isNotBlank() && slotId.isNotBlank() &&
                                 MatchTowerCard.entries.any { it.wireId == card }) {
                                 onEvent(MatchmakingEvent.TowerBuilt(actionId, slotId, owner, card, economy))
+                            }
+                        }
+                        "tower_sold" -> {
+                            val economy = json.economySnapshot(activeBalance)
+                            val owner = json.optInt("ownerPlayerNumber", 0)
+                            val actionId = json.optString("actionId")
+                            val slotId = json.optString("slotId")
+                            if (economy != null && owner in 1..2 && actionId.isNotBlank() && slotId.isNotBlank()) {
+                                onEvent(MatchmakingEvent.TowerSold(actionId, slotId, owner, json.optInt("refund", 0), economy))
                             }
                         }
                         "action_rejected" -> onEvent(MatchmakingEvent.ActionRejected(

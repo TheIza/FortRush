@@ -6,9 +6,10 @@ Actualizado: 24/11/2026
 
 - Proyecto de trabajo: C:\Users\izarb\AndroidStudioProjects\FortRush.
 - Remoto: https://github.com/TheIza/FortRush.git.
-- La usuaria pidió que los commits se hagan en main. El commit 901d2b0, “feat: centralizar balance y economia de partida”, está en main y se subió a GitHub.
+- La usuaria pidió que los commits se hagan en `main`. El último commit publicado antes del trabajo de combate fue `b0da81d`, “fix: completar cola y preparación de partidas”. Los cambios del combate aún están en el árbol local.
 - Se creó y verificó el bundle de recuperación C:\Users\izarb\Documents\ChatGPT\FortRush\staging\fortrush-main-before-balance-2026-11-24.bundle; contiene la referencia main anterior d612c9a. No se cambiaron local.properties, Firebase ni secretos.
-- Cloudflare muestra Ready para el commit 901d2b0 en main. GET /health respondió status ok, profileApiConfigured true, mapGeneratorVersion v2 y matchBalanceVersion fort-rush-2026-11-23.1.
+- Antes del combate se creó y verificó `staging/fortrush-main-before-gameplay-v2-2026-11-24.bundle`; contiene la referencia `b0da81d` y el historial completo.
+- La última versión conocida de Cloudflare, anterior a este cambio, informó `matchBalanceVersion fort-rush-2026-11-23.1`. La versión de combate `fort-rush-2026-11-24.1` todavía debe publicarse y comprobarse.
 
 ## Tareas del plan
 
@@ -33,7 +34,7 @@ Estado: parcial. Se consultó el plan Free y el Worker usa WebSocket hibernable;
 ### 05 — Balance y protocolo
 Estado: completada en código y despliegue inicial.
 - El servidor conserva una versión de balance por partida y la entrega en game_start.
-- /health confirmó fort-rush-2026-11-23.1.
+- La última comprobación histórica de /health confirmó fort-rush-2026-11-23.1. El Worker local ahora usa fort-rush-2026-11-24.1; queda desplegar y volver a consultar /health.
 - Node 35/35 y Android tests pasaron.
 - Falta una prueba manual de una partida usando el APK actualizado.
 
@@ -62,6 +63,24 @@ Estado: completada en lógica del Worker y tests automatizados; falta prueba vis
 - Los controles de juego todavía no aparecen durante carga/cuenta atrás. Las acciones de torre siguen rechazándose en fases distintas a `IN_MATCH`.
 - `node --test matchmaking.test.mjs`: 5/5 pasaron; `npm test`: 38/38 pasaron el 24/11/2026.
 
+## Estado actual — combate jugable en código (24/11/2026)
+
+El punto 10–20 del plan ya tiene una primera implementación autoritativa en el Worker y una interfaz Android conectada. Esto aún no significa que la versión esté desplegada ni probada entre dos móviles.
+
+- El servidor procesa despliegue de Espadachín y Escudero, movimiento sobre el camino, combate simultáneo, muros, castillos, torres de flechas y cañón, monedas, venta, rendición, temporizador y muerte súbita.
+- Las acciones del jugador se identifican por la conexión autenticada; el servidor valida y guarda el estado del encuentro en el Durable Object. Las instantáneas llegan a ambos clientes.
+- Android lee la instantánea inicial y las posteriores, muestra reloj, vidas, tropas y proyectiles; se puede seleccionar una tropa y tocar el camino en la mitad propia, construir/vender torres y rendirse con confirmación. La pantalla final permite volver a Inicio.
+- El modo «prueba con bot» continúa siendo una vista local de mapa y construcción; no ejecuta esta nueva simulación. La prueba real es el emparejamiento online con dos UIDs.
+
+### Comprobaciones de esta implementación
+
+- `npm test`: 53/53 pasaron, incluida la generación de 1.000 mapas, economía, combate, resultados, venta, rendición, cola y balance versionado. No usa credenciales reales.
+- `:app:compileDebugKotlin`: compilación correcta.
+- `:app:testDebugUnitTest`: pruebas Kotlin correctas, incluidas lectura del snapshot, resultado empate y conversión de toques a distancia del camino.
+- `:app:assembleDebug`: APK de depuración generada en `app/build/outputs/apk/debug/app-debug.apk`.
+- Aún falta compilar la APK final, desplegar el Worker desde `main` y jugar una partida con dos cuentas/dispositivos. No se ha verificado el resultado visual ni la persistencia ante reinicio en un dispositivo real.
+- El Worker no implementa recuperación de conexión de la app, abandono con plazo de 30 s, ni escritura persistente de estadísticas/recompensas de perfil. Si una conexión se corta, el cliente todavía no puede reanudar la partida automáticamente.
+
 ## Siguiente paso
 
-El primer combate empieza en el punto 10: desplegar Espadachines, moverlos y sincronizar el estado. Después se añadirán muro/castillo, final normal, torres, Escuderos y muerte súbita para obtener una partida completa de beta.
+Generar la APK, publicar el Worker `fort-rush-2026-11-24.1` desde `main`, comprobar `/health` y hacer una partida remota entre dos UID distintos. La comprobación de dispositivos reales y la continuidad tras cortes siguen siendo beta pendiente.

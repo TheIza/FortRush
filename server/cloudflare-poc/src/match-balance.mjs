@@ -9,10 +9,16 @@ const freezeRecursively = (value) => {
 // Bump this version whenever a match-affecting value changes. Matches keep a
 // copy so later deployments cannot silently alter an already-started game.
 export const MATCH_BALANCE = freezeRecursively({
-  version: "fort-rush-2026-11-23.1",
+  version: "fort-rush-2026-11-24.1",
   match: {
     durationMs: 240_000,
+    suddenDeathDurationMs: 3_000,
     maxLivingTroopsPerPlayer: 20
+  },
+  combat: {
+    simulationStepMs: 100,
+    contactDistance: 40,
+    formationSpacing: 24
   },
   economy: {
     startingCoins: 150,
@@ -54,6 +60,7 @@ export const MATCH_BALANCE = freezeRecursively({
         cost: 100,
         damage: 8,
         attackIntervalMs: 700,
+        projectileSpeed: 800,
         constructionCooldownMs: 0,
         rangeAsBoardWidth: 0.25
       },
@@ -61,6 +68,7 @@ export const MATCH_BALANCE = freezeRecursively({
         cost: 130,
         damage: 20,
         attackIntervalMs: 2_000,
+        projectileSpeed: 1_300,
         constructionCooldownMs: 0,
         rangeAsBoardWidth: 0.20,
         explosionRadiusAsOwnRange: 0.10

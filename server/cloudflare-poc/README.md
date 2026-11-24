@@ -1,10 +1,10 @@
-# FortRush — prueba de emparejamiento en Cloudflare
+# FortRush — servidor de FortRush en Cloudflare
 
-Este Worker es el backend activo de FortRush. Atiende el API de perfiles y apodos y el emparejamiento de prueba por WebSocket, usando un Durable Object para mantener la cola y la preparación de una partida de hasta dos jugadores. Verifica tokens de Firebase Authentication y comparte una geometría aleatoria generada por el Worker, idéntica para ambos jugadores.
+Este Worker atiende el API de perfiles y apodos y el juego 1v1 por WebSocket. Un Durable Object mantiene la cola, la partida, la simulación autoritativa y sus instantáneas. Verifica tokens de Firebase Authentication y comparte geometría de mapa idéntica entre los dos jugadores.
 
-El mapa v2, la cola, la preparación de partida, la construcción de torres y el balance versionado están desplegados desde main en Cloudflare. El 24/11/2026, la usuaria confirmó Ready para el commit 901d2b0 y GET /health devolvió status ok, mapGeneratorVersion v2 y matchBalanceVersion fort-rush-2026-11-23.1. La configuración se probó con contratos automatizados; todavía falta probar la economía con el APK actualizado en una partida real.
+El código incluye tropas, movimiento y combate, muros/castillos, dos torres, monedas, venta, rendición, temporizador y muerte súbita. La versión activa de balance del código es `fort-rush-2026-11-24.1`. El despliegue y la partida en dos dispositivos deben comprobarse para cada versión antes de considerarlos publicados.
 
-Todavía no es el servidor completo del juego: no ejecuta combate ni permite reanudar una partida tras perder la conexión. El generador v2 produce un camino curvo, continuo y simétrico mediante un giro de 180 grados, con siete huecos por jugador por defecto (configurable) y puertas centradas sobre el camino. La app dibuja dos muros de lado a lado con piezas repetidas y solapadas; el Worker envía geometría, no archivos de arte. El generador valida límites, cruces, separación del camino y huecos; evalúa 20 variantes por semilla y conserva cinco mapas de respaldo. La lógica de combate sigue pendiente.
+La reconexión de un cliente, la recuperación si la partida se pierde y el guardado de estadísticas/recompensas de perfil siguen pendientes. El generador v2 produce un camino curvo, continuo y simétrico mediante un giro de 180 grados, con siete huecos por jugador por defecto (configurable). El Worker envía geometría, no archivos de arte. El generador evalúa variantes y conserva cinco mapas de respaldo.
 
 ## Configuración local
 
@@ -26,7 +26,7 @@ El secreto se llama `FIREBASE_SERVICE_ACCOUNT_JSON`. Se configurará en Cloudfla
 
 La credencial de servidor ya está configurada en Cloudflare. La prueba autenticada desde Android confirmó que el perfil carga y que un jugador puede entrar en la app. Render ya no forma parte de la ruta activa; el servicio alojado en Render y su Blueprint todavía deben eliminarse desde sus paneles.
 
-La suite de contrato simulada se ejecuta con `npm test` desde esta carpeta. Incluye reserva de apodos y pruebas del mapa, la economía de partida y la validación de construcción; no sustituye una prueba contra Firestore real ni una prueba visual en dos dispositivos.
+La suite de contrato simulada se ejecuta con `npm test` desde esta carpeta. Incluye reserva de apodos, matchmaking, mapas, economía, construcción, venta, tropas, combate, resultados y muerte súbita. No sustituye una prueba autenticada entre dos dispositivos ni prueba la persistencia ante reinicios.
 
 ## Despliegue
 
@@ -37,15 +37,19 @@ npm install
 npx wrangler deploy
 ```
 
-La migración `v1` crea la clase Durable Object con almacenamiento SQLite. Comprueba `GET /health`; debe responder `status: "ok"`, `profileApiConfigured: true` una vez guardado el secreto del perfil y `matchBalanceVersion: "fort-rush-2026-11-23.1"` tras publicar este balance.
+La migración `v1` crea la clase Durable Object con almacenamiento SQLite. Comprueba `GET /health`; debe responder `status: "ok"`, `profileApiConfigured: true` una vez guardado el secreto del perfil y `matchBalanceVersion: "fort-rush-2026-11-24.1"` tras publicar esta versión.
 
 ## Prueba desde FortRush
 
 1. Compila e instala la app con una sesión Firebase válida.
 2. Abre la app en dos dispositivos o en un móvil y un emulador, con dos usuarios Firebase distintos.
 3. Pulsa **Jugar** en ambos.
-4. Comprueba que ambos ven el mismo `matchId` y mapa, que aparecen siete huecos por jugador y que la cuenta atrás empieza cuando ambos terminan de cargar. El evento `game_start` debe incluir la geometría completa del mapa.
-5. Cancela mientras uno está esperando y confirma que vuelve a Inicio. Después de encontrar rival, el botón cancelar debe estar desactivado.
+4. Comprueba que ambos ven el mismo mapa y que la cuenta atrás empieza cuando ambos terminan de cargar.
+5. Toca una carta de tropa y luego una parte verde del camino de tu lado. La carta de torre se construye tocándola y después un hueco propio libre; toca una torre propia para seleccionarla y venderla con confirmación.
+6. Confirma que las tropas y vidas se actualizan en ambos móviles. Deja que la partida llegue a cuatro minutos para probar muerte súbita o usa rendición para validar la pantalla de resultado.
+7. Cancela mientras uno está esperando y confirma que vuelve a Inicio. Después de encontrar rival, el botón cancelar debe estar desactivado.
+
+La prueba con un dispositivo en modo local es solo una vista visual y no reemplaza la simulación autoritativa. El ensayo de juego requiere dos UIDs Firebase.
 
 El rival aparece como **Rival de prueba**: la prueba aún no consulta el apodo de Firestore. No compartas tokens Firebase. Si no se empareja, anota el mensaje que aparece y si ambos dispositivos siguen en la misma conexión de red.
 

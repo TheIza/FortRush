@@ -8,7 +8,7 @@ import org.junit.Test
 
 class MatchBalanceConfigTest {
     private fun balanceJson() = JSONObject(
-        """{"balance":{"version":"fort-rush-2026-11-23.1","match":{"durationMs":240000},"economy":{"startingCoins":150,"maximumCoins":1000,"incomeBands":[{"fromElapsedMs":0,"untilElapsedMs":180000,"coinsPerSecond":5},{"fromElapsedMs":180000,"untilElapsedMs":240000,"coinsPerSecond":10}]},"cards":{"towers":{"arrow_tower":{"cost":100},"cannon_tower":{"cost":130}}}}}"""
+        """{"balance":{"version":"fort-rush-2026-11-24.1","match":{"durationMs":240000},"economy":{"startingCoins":150,"maximumCoins":1000,"incomeBands":[{"fromElapsedMs":0,"untilElapsedMs":180000,"coinsPerSecond":5},{"fromElapsedMs":180000,"untilElapsedMs":240000,"coinsPerSecond":10}]},"cards":{"towers":{"arrow_tower":{"cost":100,"rangeAsBoardWidth":0.25},"cannon_tower":{"cost":130,"rangeAsBoardWidth":0.20}},"troops":{"espadachin":{"cost":45},"escudero":{"cost":55}}}}}"""
     )
 
     @Test
@@ -16,9 +16,11 @@ class MatchBalanceConfigTest {
         val balance = balanceJson().matchBalanceConfig()
 
         assertNotNull(balance)
-        assertEquals("fort-rush-2026-11-23.1", balance!!.version)
+        assertEquals("fort-rush-2026-11-24.1", balance!!.version)
         assertEquals(100, balance.towerCost(MatchTowerCard.ARROW_TOWER))
         assertEquals(130, balance.towerCost(MatchTowerCard.CANNON_TOWER))
+        assertEquals(0.25f, balance.towerRangeFraction(MatchTowerCard.ARROW_TOWER), 0.0001f)
+        assertEquals(0.20f, balance.towerRangeFraction(MatchTowerCard.CANNON_TOWER), 0.0001f)
         assertEquals(5, balance.incomeRateAt(179_999))
         assertEquals(10, balance.incomeRateAt(180_000))
     }
