@@ -86,3 +86,19 @@ Responder a la revisión visual de la arena: muralla continua de borde a borde, 
 - El commit 901d2b0 se empujó a main y la usuaria confirmó que Cloudflare lo mostró Ready.
 - El punto 05 queda verificado en contrato, servidor, parser Android y test JVM.
 - Siguiente tarea: punto 06, pruebas explícitas de dos identidades y rechazo de identidad duplicada. No se han modificado todavía las reglas de combate.
+
+## 24/11/2026 — Punto 06: dos identidades y creación de partida
+
+### Objetivo y cambios
+- Comprobar que dos UID diferentes producen una sola partida con un matchId común, y que una cuenta conectada no pueda abrir una segunda conexión.
+- Se permitió inyectar el verificador de identidad en WebSocketProbe para los tests. La ejecución normal mantiene verifyFirebaseIdentity como valor por defecto.
+- Se añadió matchmaking.test.mjs con un flujo de autenticación controlado, unión a cola, emparejamiento y rechazo de UID repetido.
+
+### Comprobaciones reales
+- node --check pasó en index.mjs y matchmaking.test.mjs.
+- npm test: 35/35 pasaron, incluidas 1000 semillas, balance, perfil, torres e identidades.
+- El test de identidad usa UIDs simulados; no valida un token real de Google ni sustituye la prueba manual con dos dispositivos.
+
+### Siguiente paso
+- Auditar las garantías del mapa del punto 07 y después probar cola/cancelación y carga/cuenta atrás.
+- La primera mecánica de combate desplegable sigue siendo el punto 10.

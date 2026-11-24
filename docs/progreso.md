@@ -20,7 +20,7 @@ Estado: completada para la versión base d612c9a; bundle verificado antes de int
 
 ### 02 — Pruebas existentes y compilación Android
 Estado: completada el 24/11/2026.
-- npm test: 33/33 pasaron, incluida la suite de 1000 mapas.
+- npm test: 35/35 pasaron, incluida la suite de 1000 mapas y los dos tests de identidad del punto 06.
 - :app:testDebugUnitTest: compilación y tests Kotlin completados correctamente después de añadir org.json solo a testImplementation.
 - La biblioteca de tests es org.json:json:20260814; no forma parte de la app distribuida.
 
@@ -34,12 +34,16 @@ Estado: parcial. Se consultó el plan Free y el Worker usa WebSocket hibernable;
 Estado: completada en código y despliegue inicial.
 - El servidor conserva una versión de balance por partida y la entrega en game_start.
 - /health confirmó fort-rush-2026-11-23.1.
-- Node 33/33 y Android tests pasaron.
+- Node 35/35 y Android tests pasaron.
 - Falta una prueba manual de una partida usando el APK actualizado.
 
 ### 06 — Dos identidades y creación de partida
-Estado: pendiente de cerrar. El código autentica UID de Firebase, rechaza una sesión duplicada y empareja dos UIDs; faltan tests explícitos que comprueben rechazo de UID repetido y un único matchId con dos identidades distintas.
+Estado: completada mediante tests automatizados.
+- Dos UID distintos crean una sola partida con dos jugadores numerados y ambos reciben el mismo matchId.
+- Una segunda conexión autenticada con el UID ya conectado recibe ALREADY_CONNECTED y se cierra.
+- El test sustituye el verificador de Firebase por una función controlada. No usa tokens reales ni reemplaza la validación JWT de producción.
+- npm test: 35/35 pasaron.
 
 ## Siguiente paso
 
-Completar los tests del punto 06. Después cerrar por evidencia los puntos 07–09, que ya tienen partes implementadas, y empezar el despliegue de tropas del punto 10. El primer combate jugable empieza en el punto 10; los puntos anteriores verifican la base multijugador.
+Auditar y cerrar el punto 07 con las pruebas existentes de geometría, siete huecos por jugador, simetría y mapas de respaldo. Luego verificar cola/cancelación (08) y carga/cuenta atrás (09). El primer combate jugable empieza en el punto 10.

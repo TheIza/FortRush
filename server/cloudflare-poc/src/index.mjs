@@ -115,9 +115,10 @@ function rejectBuild(socket, actionId, slotId, reason) {
 }
 
 export class WebSocketProbe {
-  constructor(ctx, env) {
+  constructor(ctx, env, identityVerifier = verifyFirebaseIdentity) {
     this.ctx = ctx;
     this.env = env;
+    this.verifyIdentity = identityVerifier;
   }
 
   async fetch(request) {
@@ -163,7 +164,7 @@ export class WebSocketProbe {
       return;
     }
     try {
-      const { uid } = await verifyFirebaseIdentity(payload.token, this.env.FIREBASE_PROJECT_ID);
+      const { uid } = await this.verifyIdentity(payload.token, this.env.FIREBASE_PROJECT_ID);
       const duplicate = this.ctx.getWebSockets().some((other) => other !== socket && other.deserializeAttachment()?.uid === uid);
       if (duplicate) {
         send(socket, "error", { code: "ALREADY_CONNECTED", message: "Esta cuenta ya está conectada a la prueba." });
