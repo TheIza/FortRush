@@ -140,9 +140,9 @@ Responder a la revisión visual de la arena: muralla continua de borde a borde, 
 - `:app:compileDebugKotlin`: correcto.
 - `:app:testDebugUnitTest`: correcto, incluidos parseo de snapshot/resultado y conversión de toque a posición de camino.
 - `:app:assembleDebug`: correcto; generó `app/build/outputs/apk/debug/app-debug.apk`.
-- No se ha desplegado esta versión ni se ha probado el juego en dos móviles reales. No se ejecutaron pruebas con credenciales Firebase auténticas.
+- Tras el push a `main`, el GET público a `/health` respondió `status: ok`, `mapGeneratorVersion: v2` y `matchBalanceVersion: fort-rush-2026-11-24.1`; esto confirma que el Worker publicado sirve la versión de combate. No se ha probado una partida en dos móviles ni con credenciales Firebase auténticas.
 
 ### Pendiente
-- Generar la APK final, desplegar la versión desde `main`, comprobar `/health` y jugar con dos cuentas distintas.
+- Instalar la APK en dos dispositivos con UIDs distintos y probar una partida completa; el despliegue se verificó mediante `/health`.
 - La reconexión tras corte, persistencia del resultado/recompensa del perfil y prueba de reinicio de Durable Object siguen pendientes.
 - Aprendizaje personal: pendiente de que la usuaria lo redacte o confirme.
