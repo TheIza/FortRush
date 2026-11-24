@@ -140,6 +140,7 @@ fun BattleArenaScreen(
     val currentCoins = remember(economy, economyTick) {
         economy?.coinsAfterElapsed(SystemClock.elapsedRealtime() - economyReceivedAt) ?: 0
     }
+    fun towerCost(card: MatchTowerCard): Int = economy?.balance?.towerCost(card) ?: card.cost
     LaunchedEffect(blueprintReturn) {
         val returning = blueprintReturn ?: return@LaunchedEffect
         returnX.snapTo(returning.from.x)
@@ -175,7 +176,7 @@ fun BattleArenaScreen(
             localPlayerNumber = playerNumber,
             isMatchActive = isMatchActive,
             isSlotOccupied = occupied,
-            hasEnoughCoins = currentCoins >= card.cost
+            hasEnoughCoins = currentCoins >= towerCost(card)
         )
         dragTargetValid = eligibility.allowed
         dragTargetRoot = runCatching { root.localPositionOf(arena, Offset(target.x, target.y)) }.getOrNull()
@@ -194,7 +195,7 @@ fun BattleArenaScreen(
             localPlayerNumber = playerNumber,
             isMatchActive = isMatchActive,
             isSlotOccupied = occupied,
-            hasEnoughCoins = currentCoins >= card.cost
+            hasEnoughCoins = currentCoins >= towerCost(card)
         )
         if (!eligibility.allowed) {
             localFeedback = when (eligibility.reason) {
@@ -227,7 +228,7 @@ fun BattleArenaScreen(
                 !isMatchActive -> "La partida no está en curso."
                 slotId == null -> "Suelta la torre sobre uno de tus huecos."
                 towerPlacements.any { it.slotId == slotId } || slotId in pendingSlotIds -> "Ese hueco ya está ocupado."
-                currentCoins < card.cost -> "No tienes monedas suficientes para esa torre."
+                currentCoins < towerCost(card) -> "No tienes monedas suficientes para esa torre."
                 else -> "No se puede construir en ese hueco."
             }
         }
@@ -320,7 +321,8 @@ fun BattleArenaScreen(
             ArenaCardHand(
                 modifier = Modifier.fillMaxWidth(),
                 coins = currentCoins,
-                incomePerSecond = economy?.incomePerSecond ?: 5,
+                incomePerSecond = economy?.incomeRateAfterElapsed(SystemClock.elapsedRealtime() - economyReceivedAt) ?: 5,
+                towerCosts = MatchTowerCard.entries.associate { it.wireId to towerCost(it) },
                 selectedTowerCard = selectedTowerCard,
                 draggedTowerCard = draggedTowerCard,
                 message = rejectionText,
@@ -457,6 +459,7 @@ private fun ArenaCardHand(
     modifier: Modifier = Modifier,
     coins: Int,
     incomePerSecond: Int,
+    towerCosts: Map<String, Int>,
     selectedTowerCard: MatchTowerCard?,
     draggedTowerCard: MatchTowerCard?,
     message: String?,
@@ -523,6 +526,7 @@ private fun ArenaCardHand(
                 ArenaHandCard(
                     model = card,
                     modifier = Modifier.weight(1f).aspectRatio(0.72f),
+                    towerCost = card.towerCard?.let { towerCosts[it.wireId] },
                     selected = card.towerCard != null && selectedTowerCard == card.towerCard,
                     isDragging = card.towerCard != null && draggedTowerCard == card.towerCard,
                     onTap = { card.towerCard?.let(onTowerCardTap) },
@@ -541,6 +545,7 @@ private fun ArenaCardHand(
 private fun ArenaHandCard(
     model: ArenaHandCardModel,
     modifier: Modifier,
+    towerCost: Int?,
     selected: Boolean,
     isDragging: Boolean,
     onTap: () -> Unit,
@@ -554,7 +559,7 @@ private fun ArenaHandCard(
     val towerCard = model.towerCard
     var cardModifier = modifier.semantics {
             contentDescription = if (towerCard == null) model.description else
-                "${towerCard.displayName}, cuesta ${towerCard.cost} monedas. Toca para seleccionar o manten pulsado y arrastra."
+            "${towerCard.displayName}, cuesta ${towerCost ?: towerCard.cost} monedas. Toca para seleccionar o manten pulsado y arrastra."
         }
     if (towerCard != null) {
         cardModifier = cardModifier

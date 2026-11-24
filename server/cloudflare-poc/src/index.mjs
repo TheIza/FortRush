@@ -2,12 +2,12 @@ import { createRemoteJWKSet, jwtVerify } from "jose";
 import { handleProfileApi, ProfileApiError } from "./profile-api.mjs";
 import { getNicknamePolicyMessage } from "../../src/nickname-policy.mjs";
 import { createSharedMap } from "./shared-map.mjs";
-
-export const MATCH_ECONOMY = Object.freeze({ startingCoins: 150, incomePerSecond: 5 });
-export const TOWER_CARDS = Object.freeze({
-  arrow_tower: Object.freeze({ cost: 100 }),
-  cannon_tower: Object.freeze({ cost: 130 })
-});
+import {
+  accruePassiveCoins,
+  cloneMatchBalance,
+  incomeRateAtElapsedMs,
+  MATCH_BALANCE
+} from "./match-balance.mjs";
 
 const FIREBASE_JWKS = createRemoteJWKSet(
   new URL("https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com")
@@ -33,7 +33,8 @@ export default {
         status: "ok",
         service: "fortrush-cloudflare",
         profileApiConfigured: Boolean(env.FIREBASE_SERVICE_ACCOUNT_JSON),
-        mapGeneratorVersion: "v2"
+        mapGeneratorVersion: "v2",
+        matchBalanceVersion: MATCH_BALANCE.version
       });
     }
     if (url.pathname.startsWith("/api/")) {
@@ -81,24 +82,32 @@ function send(socket, type, data = {}) {
   if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type, ...data }));
 }
 
-function configuredBuildCooldownMs(env) {
-  const value = Number(env?.TOWER_BUILD_COOLDOWN_MS ?? 0);
-  return Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
-}
-
 function economySnapshot(match, player, nowMs) {
+  const balance = match.balance ?? MATCH_BALANCE;
+  const elapsedMatchMs = Math.max(0, nowMs - match.startedAtServerMs);
   return {
-    startingCoins: MATCH_ECONOMY.startingCoins,
-    incomePerSecond: MATCH_ECONOMY.incomePerSecond,
+    balanceVersion: balance.version,
+    startingCoins: balance.economy.startingCoins,
+    incomePerSecond: incomeRateAtElapsedMs(elapsedMatchMs, balance.economy),
     startedAtServerMs: match.startedAtServerMs,
     serverTimeMs: nowMs,
-    coinsSpent: player?.coinsSpent ?? 0
+    elapsedMatchMs,
+    coinsSpent: player?.coinsSpent ?? 0,
+    coins: player ? coinsAvailable(match, player, nowMs) : balance.economy.startingCoins,
+    maximumCoins: balance.economy.maximumCoins
   };
 }
 
 function coinsAvailable(match, player, nowMs) {
+  const balance = match.balance ?? MATCH_BALANCE;
   const elapsedWholeSeconds = Math.floor(Math.max(0, nowMs - match.startedAtServerMs) / 1_000);
-  return Math.max(0, MATCH_ECONOMY.startingCoins + elapsedWholeSeconds * MATCH_ECONOMY.incomePerSecond - (player.coinsSpent ?? 0));
+  const currentCoins = player.coinsAtLastUpdate ?? Math.max(0, balance.economy.startingCoins - (player.coinsSpent ?? 0));
+  return accruePassiveCoins(
+    currentCoins,
+    player.incomeAppliedThroughSecond ?? 0,
+    elapsedWholeSeconds,
+    balance.economy
+  );
 }
 
 function rejectBuild(socket, actionId, slotId, reason) {
@@ -210,12 +219,15 @@ export class WebSocketProbe {
     const map = createSharedMap(mapSeed);
     const match = {
       matchId: crypto.randomUUID(),
+      balance: cloneMatchBalance(),
       phase: "LOADING",
       players: players.map(({ uid, sequence }, index) => ({
         uid,
         sequence,
         playerNumber: index + 1,
         loaded: false,
+        coinsAtLastUpdate: MATCH_BALANCE.economy.startingCoins,
+        incomeAppliedThroughSecond: 0,
         coinsSpent: 0,
         lastTowerBuiltAtMs: null,
         processedActionIds: []
@@ -293,6 +305,8 @@ export class WebSocketProbe {
     match.startedAtServerMs = Date.now();
     match.towers = [];
     match.players.forEach((player) => {
+      player.coinsAtLastUpdate = (match.balance ?? MATCH_BALANCE).economy.startingCoins;
+      player.incomeAppliedThroughSecond = 0;
       player.coinsSpent = 0;
       player.lastTowerBuiltAtMs = null;
       player.processedActionIds = [];
@@ -304,6 +318,7 @@ export class WebSocketProbe {
       send(socket, "game_start", {
         matchId: match.matchId,
         map: match.map,
+        balance: match.balance ?? cloneMatchBalance(),
         economy: economySnapshot(match, player, match.startedAtServerMs)
       });
     });
@@ -345,20 +360,22 @@ export class WebSocketProbe {
       return;
     }
     const card = typeof payload.card === "string" ? payload.card : "";
-    const towerDefinition = Object.hasOwn(TOWER_CARDS, card) ? TOWER_CARDS[card] : null;
+    const balance = match.balance ?? MATCH_BALANCE;
+    const towerDefinition = Object.hasOwn(balance.cards.towers, card) ? balance.cards.towers[card] : null;
     if (!towerDefinition) {
       rejectBuild(socket, actionId, slotId, "NOT_A_TOWER_CARD");
       return;
     }
 
     const nowMs = Date.now();
-    const cooldownMs = configuredBuildCooldownMs(this.env);
+    const cooldownMs = Math.max(0, Math.floor(towerDefinition.constructionCooldownMs ?? 0));
     if (cooldownMs > 0 && Number.isFinite(player.lastTowerBuiltAtMs) &&
         nowMs - player.lastTowerBuiltAtMs < cooldownMs) {
       rejectBuild(socket, actionId, slotId, "ON_COOLDOWN");
       return;
     }
-    if (coinsAvailable(match, player, nowMs) < towerDefinition.cost) {
+    const availableCoins = coinsAvailable(match, player, nowMs);
+    if (availableCoins < towerDefinition.cost) {
       rejectBuild(socket, actionId, slotId, "NOT_ENOUGH_COINS");
       return;
     }
@@ -370,6 +387,8 @@ export class WebSocketProbe {
       cost: towerDefinition.cost,
       placedAtServerMs: nowMs
     };
+    player.coinsAtLastUpdate = availableCoins - towerDefinition.cost;
+    player.incomeAppliedThroughSecond = Math.floor(Math.max(0, nowMs - match.startedAtServerMs) / 1_000);
     player.coinsSpent += towerDefinition.cost;
     player.lastTowerBuiltAtMs = nowMs;
     player.processedActionIds = [...(player.processedActionIds ?? []), actionId].slice(-32);

@@ -25,17 +25,46 @@ Cuando termina la cuenta atrás, el servidor envía a cada jugador el mismo even
     "wallGates": { "player1": { "x": 500, "y": 1548 }, "player2": { "x": 500, "y": 252 } },
     "castlePositions": { "player1": { "x": 500, "y": 1677.6 }, "player2": { "x": 500, "y": 122.4 } }
   },
+  "balance": {
+    "version": "fort-rush-2026-11-23.1",
+    "match": { "durationMs": 240000, "maxLivingTroopsPerPlayer": 20 },
+    "economy": {
+      "startingCoins": 150,
+      "maximumCoins": 1000,
+      "incomeBands": [
+        { "fromElapsedMs": 0, "untilElapsedMs": 180000, "coinsPerSecond": 5 },
+        { "fromElapsedMs": 180000, "untilElapsedMs": 240000, "coinsPerSecond": 10 }
+      ],
+      "wallBreakReward": { "attacker": 50, "defender": 30 }
+    },
+    "cards": { "troops": {}, "towers": {} },
+    "structures": { "wallHealth": 500, "castleHealth": 400 }
+  },
   "economy": {
     "startingCoins": 150,
     "incomePerSecond": 5,
     "startedAtServerMs": 1795380000000,
     "serverTimeMs": 1795380000000,
-    "coinsSpent": 0
+    "elapsedMatchMs": 0,
+    "coinsSpent": 0,
+    "coins": 150,
+    "maximumCoins": 1000,
+    "balanceVersion": "fort-rush-2026-11-23.1"
   }
 }
 ```
 
-El fragmento muestra la estructura y tipos; los arrays y objetos reales contienen la geometría completa del mapa.
+El fragmento omite el detalle de las cartas y la geometría del mapa. El evento real incluye ambos completos.
+
+## Versión de balance
+
+- Al emparejar, el servidor copia la configuración vigente dentro del estado de esa partida.
+- `balance.version` identifica ese conjunto de reglas. Cambiar un valor de juego requiere actualizar la versión.
+- `balance` contiene duración, economía, valores aprobados de las cuatro cartas, vida de muro/castillo y recompensas por destruir el muro.
+- `game_start` envía la misma configuración a los dos jugadores. `tower_built.economy.balanceVersion` debe coincidir con `balance.version`.
+- Android usa los costes y el ingreso recibidos para presentar el estado. Solo el servidor decide saldo, coste, validación y resultado; valores enviados por el cliente no son autoridad.
+- El generador toma del balance central el alcance de la Torre de flechas para puntuar `coverage` y publicar `map.meta.towerRange`; con el mapa lógico actual de 1000 unidades, el valor es 250. El alcance de la Torre de cañón permanece en su propio campo de balance y no se sustituye por este radio común del generador.
+- La configuración ya reúne también parámetros de combate aprobados, pero el Worker todavía no ejecuta las reglas de tropas, torres, muro, castillo ni duración. Se activarán en sus tareas de implementación; incluir un valor en el contrato no afirma que esa mecánica ya funcione.
 
 ## Mapa
 
@@ -74,10 +103,12 @@ El cliente ignora campos desconocidos en el objeto de slot para aceptar formatos
 Las monedas de la partida son independientes del saldo cosmético del perfil Firestore.
 
 - Al comenzar (`game_start`), cada jugador recibe 150 monedas.
-- El servidor suma 5 monedas por cada segundo completo desde `startedAtServerMs`.
-- El límite máximo de monedas todavía está pendiente de decidir. El prototipo actual no aplica un tope.
-- El ingreso y el saldo se calculan en el servidor; el cliente solo aproxima el contador visual entre eventos.
-- No hay cooldown de construcción: `TOWER_BUILD_COOLDOWN_MS` no está configurado en Wrangler, por lo que su valor efectivo es 0.
+- El saldo máximo es 1000 monedas. Las recompensas por muro y la venta de torres podrán dejar el saldo por encima de ese máximo; el tope solo limita el ingreso pasivo.
+- Desde 0 hasta 180 segundos se reciben 5 monedas por cada segundo completo. Desde 180 hasta 240 segundos se reciben 10 por segundo.
+- El Worker aplica el ingreso de forma perezosa al validar una acción y conserva el saldo al último momento aplicado. Si se alcanza el máximo y después se gastan monedas, el ingreso puede continuar en segundos posteriores.
+- `economy.coins` es el saldo autoritativo en `serverTimeMs`; `elapsedMatchMs` permite al cliente aproximar los segundos posteriores. `incomePerSecond` es la tasa vigente en esa instantánea y `maximumCoins` el límite del ingreso pasivo.
+- El cliente comprueba que la versión de la instantánea coincide con la configuración de `game_start`. La interfaz aproxima el contador; las acciones siempre vuelven a validarse en el servidor.
+- La construcción de torre tiene cooldown 0 según `balance.cards.towers`. El Worker ya no depende de una variable de entorno para ese valor.
 
 ## Construcción de torres
 
@@ -92,10 +123,10 @@ El cliente solicita una construcción con un identificador único por acción:
 }
 ```
 
-Las cartas de torre y costes aceptados por el servidor son `arrow_tower` por 100 monedas y `cannon_tower` por 130. El servidor identifica al jugador con el UID y número de jugador asociados a la conexión autenticada; no utiliza un número de jugador del payload. Valida la fase, el hueco y su propietario, ocupación, tipo de carta, cooldown y saldo antes de escribir el estado.
+Las cartas de torre y costes aceptados por el servidor salen de la versión guardada en la partida: `arrow_tower` cuesta 100 monedas y `cannon_tower` cuesta 130. El servidor identifica al jugador con el UID y número de jugador asociados a la conexión autenticada; no utiliza un número de jugador del payload. Valida la fase, el hueco y su propietario, ocupación, tipo de carta, cooldown y saldo antes de escribir el estado.
 
 Si acepta, guarda la torre y el gasto en el Durable Object y envía `tower_built` a ambos jugadores. El evento contiene `actionId`, `slotId`, `ownerPlayerNumber`, `card` y una instantánea de economía. Si rechaza, envía `action_rejected` al solicitante con `actionId`, `slotId` y uno de estos motivos: `UNKNOWN_SLOT`, `NOT_YOUR_SLOT`, `SLOT_OCCUPIED`, `NOT_A_TOWER_CARD`, `NOT_ENOUGH_COINS`, `ON_COOLDOWN` o `INVALID_STATE`. Un identificador ya aceptado se ignora sin volver a gastar monedas ni crear otra torre.
 
-Las solicitudes durante `COUNTDOWN` o `SUDDEN_DEATH` se rechazan como `INVALID_STATE`. En la implementación actual el cooldown efectivo es cero; el caso `ON_COOLDOWN` se prueba configurando un cooldown solo en el test. La construcción no inicia ni modifica la simulación de combate. La venta de torres todavía no está conectada al protocolo.
+Las solicitudes durante `COUNTDOWN` o `SUDDEN_DEATH` se rechazan como `INVALID_STATE`. El cooldown sale de la configuración de la carta y ahora vale cero. El test de cooldown cambia una copia de configuración para comprobar el rechazo; no modifica el balance desplegable. La construcción no inicia ni modifica la simulación de combate. La venta de torres todavía no está conectada al protocolo.
 
-La pantalla de arena permite seleccionar una carta de torre y tocar un hueco propio libre, o mantener la carta pulsada y arrastrarla. El cliente solo muestra huecos propios como destinos interactivos y deja los huecos rivales como elementos visuales. El círculo usa `meta.towerRange` recibido en el mapa y aparece al apuntar a un hueco propio o seleccionar una torre propia; es una visualización geométrica y todavía no representa un combate simulado. Una construcción se muestra como pendiente hasta que el servidor la confirma; ante rechazo, el cliente retira el estado pendiente y presenta un mensaje. La prueba visual en dispositivos todavía está pendiente.
+La pantalla de arena permite seleccionar una carta de torre y tocar un hueco propio libre, o mantener la carta pulsada y arrastrarla. El cliente solo muestra huecos propios como destinos interactivos y deja los huecos rivales como elementos visuales. El círculo actual usa `map.meta.towerRange`, que representa el alcance de flechas y sirve para el generador; por ahora el mismo radio se dibuja con cualquiera de las cartas y no coincide con el alcance menor del cañón. Es una guía geométrica, no un combate simulado. Una construcción se muestra como pendiente hasta que el servidor la confirma; ante rechazo, el cliente retira el estado pendiente y presenta un mensaje. La prueba visual en dispositivos todavía está pendiente.

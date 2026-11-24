@@ -1,19 +1,23 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createSharedMap } from "./src/shared-map.mjs";
-import { WebSocketProbe } from "./src/index.mjs";
+import worker, { WebSocketProbe } from "./src/index.mjs";
 import { MAP_ARCHETYPES } from "./src/map-v2.mjs";
+import { cloneMatchBalance, MATCH_BALANCE } from "./src/match-balance.mjs";
 
-function towerBuildHarness({ phase = "IN_MATCH", env = {}, coinsSpent = 0, lastTowerBuiltAtMs = null, occupiedSlotId = null, startedAgoMs = 0 } = {}) {
+function towerBuildHarness({ phase = "IN_MATCH", coinsSpent = 0, cooldownMs = 0, lastTowerBuiltAtMs = null, occupiedSlotId = null, startedAgoMs = 0 } = {}) {
   const map = createSharedMap("tower-build-map");
+  const balance = cloneMatchBalance();
+  balance.cards.towers.arrow_tower.constructionCooldownMs = cooldownMs;
   const startedAtServerMs = Date.now() - startedAgoMs;
   const match = {
     matchId: "tower-build-match",
+    balance,
     phase,
     startedAtServerMs: phase === "IN_MATCH" ? startedAtServerMs : null,
     players: [
-      { uid: "uid-one", playerNumber: 1, coinsSpent, lastTowerBuiltAtMs, processedActionIds: [] },
-      { uid: "uid-two", playerNumber: 2, coinsSpent: 0, lastTowerBuiltAtMs: null, processedActionIds: [] }
+      { uid: "uid-one", playerNumber: 1, coinsAtLastUpdate: Math.max(0, MATCH_BALANCE.economy.startingCoins - coinsSpent), incomeAppliedThroughSecond: 0, coinsSpent, lastTowerBuiltAtMs, processedActionIds: [] },
+      { uid: "uid-two", playerNumber: 2, coinsAtLastUpdate: MATCH_BALANCE.economy.startingCoins, incomeAppliedThroughSecond: 0, coinsSpent: 0, lastTowerBuiltAtMs: null, processedActionIds: [] }
     ],
     map,
     towers: occupiedSlotId ? [{ slotId: occupiedSlotId, ownerPlayerNumber: 1, card: "arrow_tower", cost: 100 }] : []
@@ -48,7 +52,7 @@ function towerBuildHarness({ phase = "IN_MATCH", env = {}, coinsSpent = 0, lastT
     stored,
     messages,
     writes: () => writes,
-    probe: new WebSocketProbe(context, env),
+    probe: new WebSocketProbe(context, {}),
     playerOneSocket: sockets[0],
     playerTwoSocket: sockets[1]
   };
@@ -67,6 +71,13 @@ async function sendBuild(probe, socket, values = {}) {
 function lastMessage(harness, uid = "uid-one") {
   return harness.messages.get(uid).at(-1);
 }
+
+test("health publishes the active match balance version", async () => {
+  const response = await worker.fetch(new Request("https://worker.test/health"), {});
+  const body = await response.json();
+  assert.equal(body.status, "ok");
+  assert.equal(body.matchBalanceVersion, MATCH_BALANCE.version);
+});
 
 async function assertBuildRejectedWithoutChangingGame(harness, reason, values = {}) {
   const before = structuredClone(harness.match);
@@ -130,6 +141,11 @@ test("game_start sends the complete authoritative map to both players", async ()
     assert.equal(playerMessages[0].type, "game_start");
     assert.equal(playerMessages[0].matchId, "match-for-test");
     assert.deepEqual(playerMessages[0].map, map);
+    assert.deepEqual(playerMessages[0].balance, MATCH_BALANCE);
+    assert.equal(playerMessages[0].map.meta.towerRange, 250);
+    assert.equal(playerMessages[0].economy.balanceVersion, MATCH_BALANCE.version);
+    assert.equal(playerMessages[0].economy.coins, MATCH_BALANCE.economy.startingCoins);
+    assert.equal(playerMessages[0].economy.maximumCoins, MATCH_BALANCE.economy.maximumCoins);
     assert.equal(playerMessages[0].map.slots.length, 14);
     assert.ok(Array.isArray(playerMessages[0].map.path.points));
   }
@@ -173,13 +189,15 @@ test("pairing logs the generated seed and map shape", async () => {
   assert.ok(mapLog);
   const details = mapLog[1];
   const storedMatch = stored.get("match");
+  assert.equal(storedMatch.balance.version, MATCH_BALANCE.version);
+  assert.deepEqual(storedMatch.balance, MATCH_BALANCE);
   assert.equal(details.seed, storedMatch.map.seed);
   assert.equal(details.archetype, storedMatch.map.meta.archetype);
   assert.ok(MAP_ARCHETYPES.includes(details.archetype));
   assert.ok(sentMessages.every((message) => message.type === "match.found"));
 });
 
-test("game_start sends the confirmed 150 coins and 5 coins per second", async () => {
+test("game_start sends the balance version and the confirmed initial economy", async () => {
   const stored = new Map([["match", {
     matchId: "economy-match",
     phase: "COUNTDOWN",
@@ -210,11 +228,15 @@ test("game_start sends the confirmed 150 coins and 5 coins per second", async ()
   for (const playerMessages of messages) {
     assert.equal(playerMessages[0].type, "game_start");
     assert.deepEqual(playerMessages[0].economy, {
+      balanceVersion: MATCH_BALANCE.version,
       startingCoins: 150,
       incomePerSecond: 5,
       startedAtServerMs: stored.get("match").startedAtServerMs,
       serverTimeMs: stored.get("match").startedAtServerMs,
-      coinsSpent: 0
+      elapsedMatchMs: 0,
+      coinsSpent: 0,
+      coins: 150,
+      maximumCoins: 1_000
     });
   }
 });
@@ -253,7 +275,7 @@ test("build_tower rejects insufficient coins without changing coins or game stat
 
 test("build_tower can reject an active cooldown when configured", async () => {
   const harness = towerBuildHarness({
-    env: { TOWER_BUILD_COOLDOWN_MS: "5000" },
+    cooldownMs: 5_000,
     lastTowerBuiltAtMs: Date.now()
   });
   await assertBuildRejectedWithoutChangingGame(harness, "ON_COOLDOWN");

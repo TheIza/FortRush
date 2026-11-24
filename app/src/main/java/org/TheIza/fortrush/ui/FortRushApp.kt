@@ -251,7 +251,8 @@ fun FortRushApp(userId: String, onSignOut: () -> Unit = {}) {
             val now = System.currentTimeMillis()
             val elapsedSinceSnapshot = (now - economy.serverTimeMs).coerceAtLeast(0L)
             val availableCoins = economy.coinsAfterElapsed(elapsedSinceSnapshot)
-            if (availableCoins < card.cost) return false
+            val towerCost = economy.balance?.towerCost(card) ?: card.cost
+            if (availableCoins < towerCost) return false
 
             val towerKind = when (card) {
                 MatchTowerCard.ARROW_TOWER -> ArenaTowerKind.ARROW
@@ -265,7 +266,8 @@ fun FortRushApp(userId: String, onSignOut: () -> Unit = {}) {
             )
             matchEconomy = economy.copy(
                 serverTimeMs = now,
-                coinsSpent = economy.coinsSpent + card.cost
+                coinsSpent = economy.coinsSpent + towerCost,
+                coinsAtServerMs = (availableCoins - towerCost).coerceAtLeast(0)
             )
             towerBuildError = null
             return true

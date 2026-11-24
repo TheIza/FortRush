@@ -37,7 +37,7 @@ npm install
 npx wrangler deploy
 ```
 
-La migración `v1` crea la clase Durable Object con almacenamiento SQLite. Comprueba `GET /health`; debe responder `status: "ok"` y `profileApiConfigured: true` una vez guardado el secreto del perfil.
+La migración `v1` crea la clase Durable Object con almacenamiento SQLite. Comprueba `GET /health`; debe responder `status: "ok"`, `profileApiConfigured: true` una vez guardado el secreto del perfil y `matchBalanceVersion: "fort-rush-2026-11-23.1"` tras publicar este balance.
 
 ## Prueba desde FortRush
 
@@ -119,7 +119,7 @@ El servidor todavía no simula el combate. La construcción local guarda torre y
 
 ### Construcción de torres — pasos D y E
 
-El prototipo local muestra las cuatro cartas actuales; tocar una carta de torre permite seleccionar huecos propios libres y mantenerla pulsada permite arrastrar una miniatura. El servidor admite `arrow_tower` por 100 monedas y `cannon_tower` por 130, con 150 monedas al inicio, ingreso de 5 por segundo y cooldown 0. La app mantiene los huecos rivales visibles y no interactivos. El servidor identifica al jugador desde el socket autenticado, comprueba el saldo/propiedad/ocupación/fase y evita repetir una construcción aceptada con el mismo `actionId`. El saldo máximo todavía no está decidido; este prototipo no aplica un tope.
+El prototipo local muestra las cuatro cartas actuales; tocar una carta de torre permite seleccionar huecos propios libres y mantenerla pulsada permite arrastrar una miniatura. El servidor obtiene costes y reglas numéricas de `src/match-balance.mjs`, guarda una copia con la versión `fort-rush-2026-11-23.1` en cada partida y la envía en `game_start`. La economía empieza con 150 monedas, tiene tope pasivo de 1000, produce 5 monedas/s durante 180 segundos y 10 monedas/s durante el último minuto. Las torres cuestan 100 y 130 monedas y su cooldown confirmado es 0. La app usa el balance recibido para presentar coste e ingreso; el servidor sigue validando el saldo/propiedad/ocupación/fase y evita repetir una construcción aceptada con el mismo `actionId`. Los campos de combate se documentan y versionan, pero aún no están activos porque la simulación sigue pendiente.
 
 Comprobado localmente el 22/11/2026: `npm test` pasó 29/29; `:app:compileDebugKotlin` y los tests Android `ArenaSlotPickingTest` y `ArenaTowerBuildRulesTest` pasaron. No se ha desplegado el Worker ni se ha comprobado el arrastre en un dispositivo real.
 

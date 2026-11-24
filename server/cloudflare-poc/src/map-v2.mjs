@@ -1,5 +1,6 @@
 // Generador v2 aislado: no sustituye al formato que hoy consume el Worker.
 // Coordenadas lógicas en unidades de mapa; la pantalla las escala al dibujar.
+import { MATCH_BALANCE } from "./match-balance.mjs";
 
 export const MAP_ARCHETYPES = Object.freeze([
   "s-suave",
@@ -34,7 +35,6 @@ const DEFAULTS = Object.freeze({
   slotHalfHeightFraction: 0.027,
   slotGap: 12,
   invisibleRoadExtra: 25,
-  towerRange: 300,
   minimumLateralEdgeClearanceFraction: 0.11,
   sampleSpacing: 14,
   minimumRadiusFactor: 1.6,
@@ -83,7 +83,7 @@ function resolvedConfig(config = {}) {
       : DEFAULTS.invisibleRoadExtra * width / DEFAULTS.width,
     towerRange: Number.isFinite(config.towerRange) && config.towerRange > 0
       ? config.towerRange
-      : DEFAULTS.towerRange * width / DEFAULTS.width,
+      : MATCH_BALANCE.cards.towers.arrow_tower.rangeAsBoardWidth * width,
     minimumLateralEdgeClearance: Number.isFinite(config.minimumLateralEdgeClearance)
       ? Math.max(0, config.minimumLateralEdgeClearance)
       : width * DEFAULTS.minimumLateralEdgeClearanceFraction,

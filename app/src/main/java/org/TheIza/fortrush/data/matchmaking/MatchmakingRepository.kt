@@ -34,31 +34,106 @@ enum class MatchTowerCard(val wireId: String, val cost: Int, val displayName: St
     CANNON_TOWER("cannon_tower", 130, "Torre de cañón")
 }
 
+data class MatchIncomeBand(val fromElapsedMs: Long, val untilElapsedMs: Long, val coinsPerSecond: Int)
+
+data class MatchBalanceConfig(
+    val version: String,
+    val matchDurationMs: Long,
+    val startingCoins: Int,
+    val maximumCoins: Int,
+    val incomeBands: List<MatchIncomeBand>,
+    val towerCosts: Map<String, Int>
+) {
+    fun towerCost(card: MatchTowerCard): Int = towerCosts[card.wireId] ?: card.cost
+
+    fun incomeEarnedThroughSecond(elapsedSecond: Long): Long {
+        val second = elapsedSecond.coerceAtLeast(0L)
+        return incomeBands.sumOf { band ->
+            val from = band.fromElapsedMs / 1_000L
+            val until = band.untilElapsedMs / 1_000L
+            (minOf(second, until) - from).coerceAtLeast(0L) * band.coinsPerSecond
+        }
+    }
+
+    fun incomeRateAt(elapsedMs: Long): Int =
+        incomeBands.firstOrNull { elapsedMs >= it.fromElapsedMs && elapsedMs < it.untilElapsedMs }?.coinsPerSecond ?: 0
+}
+
 data class MatchEconomySnapshot(
     val startingCoins: Int,
     val incomePerSecond: Int,
     val startedAtServerMs: Long,
     val serverTimeMs: Long,
-    val coinsSpent: Int
+    val coinsSpent: Int,
+    val coinsAtServerMs: Int? = null,
+    val elapsedMatchMs: Long? = null,
+    val balance: MatchBalanceConfig? = null
 ) {
     fun coinsAfterElapsed(elapsedRealtimeMs: Long): Int {
+        if (balance != null && coinsAtServerMs != null && elapsedMatchMs != null) {
+            val startSecond = elapsedMatchMs / 1_000L
+            val endSecond = (elapsedMatchMs + elapsedRealtimeMs.coerceAtLeast(0L)) / 1_000L
+            val earned = balance.incomeEarnedThroughSecond(endSecond) - balance.incomeEarnedThroughSecond(startSecond)
+            if (coinsAtServerMs >= balance.maximumCoins) return coinsAtServerMs
+            return (coinsAtServerMs.toLong() + earned).coerceAtMost(balance.maximumCoins.toLong()).toInt()
+        }
         val elapsedAtSnapshot = (serverTimeMs - startedAtServerMs).coerceAtLeast(0L)
         val elapsed = elapsedAtSnapshot + elapsedRealtimeMs.coerceAtLeast(0L)
         val earned = elapsed / 1_000L * incomePerSecond
         return (startingCoins.toLong() + earned - coinsSpent).coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
     }
+
+    fun incomeRateAfterElapsed(elapsedRealtimeMs: Long): Int =
+        balance?.incomeRateAt((elapsedMatchMs ?: 0L) + elapsedRealtimeMs.coerceAtLeast(0L)) ?: incomePerSecond
 }
 
-private fun JSONObject.economySnapshot(): MatchEconomySnapshot? {
+internal fun JSONObject.matchBalanceConfig(): MatchBalanceConfig? {
+    val config = optJSONObject("balance") ?: return null
+    val version = config.optString("version").takeIf(String::isNotBlank) ?: return null
+    val matchDurationMs = config.optJSONObject("match")?.optLong("durationMs", -1L) ?: return null
+    val economy = config.optJSONObject("economy") ?: return null
+    val startingCoins = economy.optInt("startingCoins", -1)
+    val maximumCoins = economy.optInt("maximumCoins", -1)
+    val rawBands = economy.optJSONArray("incomeBands") ?: return null
+    val bands = (0 until rawBands.length()).mapNotNull { index ->
+        val band = rawBands.optJSONObject(index) ?: return@mapNotNull null
+        val from = band.optLong("fromElapsedMs", -1L)
+        val until = band.optLong("untilElapsedMs", -1L)
+        val rate = band.optInt("coinsPerSecond", -1)
+        if (from < 0L || until <= from || rate < 0) null else MatchIncomeBand(from, until, rate)
+    }
+    val towers = config.optJSONObject("cards")?.optJSONObject("towers") ?: return null
+    val towerCosts = listOf(MatchTowerCard.ARROW_TOWER, MatchTowerCard.CANNON_TOWER).associate { card ->
+        val cost = towers.optJSONObject(card.wireId)?.optInt("cost", -1) ?: -1
+        card.wireId to cost
+    }
+    val bandsAreContiguous = bands.zipWithNext().all { (left, right) -> left.untilElapsedMs == right.fromElapsedMs }
+    if (matchDurationMs <= 0L || startingCoins < 0 || maximumCoins < startingCoins ||
+        bands.size != rawBands.length() || bands.isEmpty() || bands.first().fromElapsedMs != 0L ||
+        bands.last().untilElapsedMs != matchDurationMs || !bandsAreContiguous || towerCosts.values.any { it <= 0 }) return null
+    return MatchBalanceConfig(version, matchDurationMs, startingCoins, maximumCoins, bands, towerCosts)
+}
+
+internal fun JSONObject.economySnapshot(balance: MatchBalanceConfig? = null): MatchEconomySnapshot? {
     val economy = optJSONObject("economy") ?: return null
     val startingCoins = economy.optInt("startingCoins", -1)
     val incomePerSecond = economy.optInt("incomePerSecond", -1)
     val startedAtServerMs = economy.optLong("startedAtServerMs", -1L)
     val serverTimeMs = economy.optLong("serverTimeMs", -1L)
     val coinsSpent = economy.optInt("coinsSpent", -1)
+    val balanceVersion = economy.optString("balanceVersion")
+    val coinsAtServerMs = economy.optInt("coins", -1)
+    val elapsedMatchMs = economy.optLong("elapsedMatchMs", -1L)
     if (startingCoins < 0 || incomePerSecond < 0 || startedAtServerMs < 0L ||
         serverTimeMs < startedAtServerMs || coinsSpent < 0) return null
-    return MatchEconomySnapshot(startingCoins, incomePerSecond, startedAtServerMs, serverTimeMs, coinsSpent)
+    if (balance != null && (balanceVersion != balance.version || startingCoins != balance.startingCoins ||
+            coinsAtServerMs < 0 || elapsedMatchMs < 0L ||
+            economy.optInt("maximumCoins", -1) != balance.maximumCoins ||
+            incomePerSecond != balance.incomeRateAt(elapsedMatchMs))) return null
+    return MatchEconomySnapshot(
+        startingCoins, incomePerSecond, startedAtServerMs, serverTimeMs, coinsSpent,
+        coinsAtServerMs.takeIf { it >= 0 }, elapsedMatchMs.takeIf { it >= 0L }, balance
+    )
 }
 
 data class MatchPoint(val x: Float, val y: Float)
@@ -264,6 +339,7 @@ class MatchmakingRepository {
                 private var connectionProvided = false
                 private var pendingMap: MatchMap? = null
                 private var gameStartReceived = false
+                private var activeBalance: MatchBalanceConfig? = null
                 override fun onOpen(webSocket: WebSocket, response: Response) {
                     webSocket.send(JSONObject().put("type", "auth").put("token", token).toString())
                 }
@@ -294,10 +370,13 @@ class MatchmakingRepository {
                         "match.countdown" -> onEvent(MatchmakingEvent.Countdown(json.optInt("seconds")))
                         "game_start" -> {
                             val map = json.optJSONObject("map")?.let(::parseMap)
-                            val economy = json.economySnapshot()
+                            val balance = json.matchBalanceConfig()
+                            val economy = json.economySnapshot(balance)
                             if (map == null) onEvent(MatchmakingEvent.Failure("El servidor inició la partida con un mapa no válido."))
-                            else if (economy == null) onEvent(MatchmakingEvent.Failure("El servidor inició la partida sin los datos de monedas."))
+                            else if (balance == null) onEvent(MatchmakingEvent.Failure("El servidor no envió la versión de balance de esta partida."))
+                            else if (economy == null) onEvent(MatchmakingEvent.Failure("El servidor inició la partida sin datos de economía válidos."))
                             else {
+                                activeBalance = balance
                                 gameStartReceived = true
                                 pendingMap = map
                                 onEvent(MatchmakingEvent.Started(json.optString("matchId"), map, economy))
@@ -316,7 +395,7 @@ class MatchmakingRepository {
                             }
                         }
                         "tower_built" -> {
-                            val economy = json.economySnapshot()
+                            val economy = json.economySnapshot(activeBalance)
                             val owner = json.optInt("ownerPlayerNumber", 0)
                             val actionId = json.optString("actionId")
                             val slotId = json.optString("slotId")
