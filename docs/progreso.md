@@ -121,3 +121,10 @@ Estado: implementado en el árbol local de `main`; **todavía no desplegado en C
 - Android: `:app:testDebugUnitTest` y `:app:assembleDebug` terminaron con `BUILD SUCCESSFUL`. La suite específica de destino de tropas tiene 5/5 pruebas, incluida la del mapa bot con longitud acumulada y toque válido.
 - El endpoint público `/health` devolvió `status: ok`, `matchmakingVersion: profile-rewards-2026-11-25.1` y `matchBalanceVersion: fort-rush-2026-11-24.1` después de completarse el despliegue de GitHub a Cloudflare. Esto verifica la versión publicada, no que se haya jugado aún con dos perfiles reales.
 - `git diff --check`: correcto. No se ha probado aún el gesto manual en un emulador/dispositivo ni una partida entre dos cuentas; la APK se compila, pero requiere instalarse para verificar visualmente el cambio.
+
+## 25/11/2026 — tropas invisibles en partidas online
+
+- Diagnóstico del flujo: el Worker genera posiciones normalizadas `x/y` para cada tropa y las incluye en `match.state`; Android las analiza y el Canvas las dibuja. Los PNG de espadachín y escudero existen, tienen transparencia y se cargan en el Canvas. No se modificó la simulación ni los valores de combate.
+- Cambio local: el dibujo online ahora interpola las coordenadas `x/y` autoritativas que envía el servidor, en vez de volver a calcularlas en Android con `pathDistance`; el Canvas de tropas y proyectiles recibe prioridad de dibujo explícita (`zIndex`).
+- Backup antes de editar: `staging/backups/fortrush-before-online-troop-render-2026-11-25.bundle`, verificado con `git bundle verify`.
+- Comprobación: `:app:assembleDebug --offline` terminó con `BUILD SUCCESSFUL`; APK generada en `app/build/outputs/apk/debug/app-debug.apk`. No se ejecutaron tests automáticos. El cambio quedó en un commit descriptivo local en `main`; todavía no se ha empujado. Sigue pendiente instalar esta APK y confirmar visualmente las tropas en una partida online.

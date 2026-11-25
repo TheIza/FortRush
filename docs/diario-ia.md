@@ -189,3 +189,10 @@ Responder a la revisión visual de la arena: muralla continua de borde a borde, 
 - Cambio: completar los datos de longitud del mapa local; en modo bot, cobrar el coste local y mostrar una formación visual estática; fuera de la zona verde, mostrar una indicación. La simulación online y sus valores no cambian. El medidor de vida reserva 4 dp inferiores.
 - Comprobación realizada: Worker 58/58; Android `testDebugUnitTest` y `assembleDebug` exitosos; 5/5 pruebas del destino de tropas. Queda pendiente la revisión visual manual con la APK y probar el despliegue online desde dos cuentas.
 - Publicación: commit `524e613` empujado a `main`. Tras esperar el build, `/health` devolvió `matchmakingVersion: profile-rewards-2026-11-25.1`; no se afirma que el apodo real se haya comprobado manualmente en una partida.
+
+# 25/11/2026 — tropas invisibles en la partida online
+
+- Petición: investigar por qué las tropas dañan el muro/castillo pero no se ven.
+- Revisión: el Worker incluye en `match.state` las coordenadas normalizadas de cada tropa; Android analiza la lista. Los sprites PNG existen, son transparentes y el Canvas los decodifica.
+- Cambio local: el cliente usa las coordenadas visuales `x/y` enviadas por el servidor e interpola entre snapshots; antes reconstruía la posición desde `pathDistance`. Se dio prioridad explícita al Canvas dinámico. No se tocaron daño, movimiento, cartas ni balance.
+- La APK compiló correctamente; la comprobación visual final requiere instalarla y jugar online. El cambio está en un commit descriptivo local de `main`, todavía sin push; se documentará el resultado real cuando la usuaria lo pruebe.

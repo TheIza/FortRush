@@ -1453,7 +1453,7 @@ private fun ArenaMapCanvas(
 
     }
 
-    Canvas(Modifier.fillMaxSize()) {
+    Canvas(Modifier.fillMaxSize().zIndex(1f)) {
         animationFrame.value
         val boardWidth = minOf(size.width, size.height * 9f / 16f)
         val boardLeft = (size.width - boardWidth) / 2f
@@ -1470,17 +1470,17 @@ private fun ArenaMapCanvas(
 
         gameState?.troops?.forEach { troop ->
             val prior = previousGameState?.troops?.firstOrNull { it.id == troop.id }
-            val pathDistance = if (prior?.pathDistance != null && troop.pathDistance != null) {
-                prior.pathDistance + (troop.pathDistance - prior.pathDistance) * fraction
-            } else null
-            val point = pathDistance?.let { pointAtMapDistance(map, it) } ?: prior?.let {
+            // The server snapshot already includes normalized world coordinates for this exact
+            // troop. Interpolate those coordinates instead of reconstructing its position from
+            // pathDistance, which depends on the client having identical path-length units.
+            val point = prior?.let {
                 MatchPoint(
                     it.point.x + (troop.point.x - it.point.x) * fraction,
                     it.point.y + (troop.point.y - it.point.y) * fraction
                 )
             } ?: troop.point
             val health = prior?.let { it.health + (troop.health - it.health) * fraction } ?: troop.health
-            val presentedTroop = troop.copy(point = point, health = health, pathDistance = pathDistance)
+            val presentedTroop = troop.copy(point = point, health = health)
             val center = oriented(point)
             val ownerColor = if (troop.ownerPlayerNumber == 1) Color(0xFF4E9BFF) else Color(0xFFFF6759)
             drawCircle(Color(0x8E101820), boardWidth * 0.056f, Offset(center.x, center.y + boardWidth * 0.032f))
