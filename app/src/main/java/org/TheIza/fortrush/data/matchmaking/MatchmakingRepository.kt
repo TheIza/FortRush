@@ -8,6 +8,8 @@ import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import org.TheIza.fortrush.BuildConfig
 import org.json.JSONObject
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 
@@ -459,9 +461,31 @@ internal fun parseMap(json: JSONObject): MatchMap? {
 }
 
 class MatchmakingConnection internal constructor(private val socket: WebSocket) {
+    private val closeLock = Any()
+    private var socketClosed = false
+    private var closeSignal: CompletableDeferred<Unit>? = null
+
     fun cancelSearch() = send("queue.cancel")
     fun mapLoaded() = send("match.loaded")
     fun close() { socket.close(1000, "Client closed") }
+
+    suspend fun closeAndWait(timeoutMs: Long = 3_000L): Boolean {
+        val signal = synchronized(closeLock) {
+            if (socketClosed) null else CompletableDeferred<Unit>().also { closeSignal = it }
+        } ?: return true
+        if (!socket.close(1000, "Client closed")) socket.cancel()
+        withTimeoutOrNull(timeoutMs) { signal.await() }
+        return signal.isCompleted
+    }
+
+    internal fun notifySocketClosed() {
+        val signal = synchronized(closeLock) {
+            socketClosed = true
+            closeSignal.also { closeSignal = null }
+        }
+        signal?.complete(Unit)
+    }
+
     private fun send(type: String) {
         socket.send(JSONObject().put("type", type).put("requestId", UUID.randomUUID().toString()).toString())
     }
@@ -529,11 +553,13 @@ class MatchmakingRepository {
             client.newWebSocket(request, object : WebSocketListener() {
                 private var authenticated = false
                 private var connectionProvided = false
+                private var matchmakingConnection: MatchmakingConnection? = null
                 private var pendingMap: MatchMap? = null
                 private var gameStartReceived = false
                 private var activeBalance: MatchBalanceConfig? = null
                 private var failureAlreadyReported = false
                 override fun onOpen(webSocket: WebSocket, response: Response) {
+                    matchmakingConnection = MatchmakingConnection(webSocket)
                     webSocket.send(JSONObject().put("type", "auth").put("token", token).toString())
                 }
                 override fun onMessage(webSocket: WebSocket, text: String) {
@@ -543,12 +569,12 @@ class MatchmakingRepository {
                         "auth.ok" -> if (!authenticated) {
                             authenticated = true
                             webSocket.send(JSONObject().put("type", "queue.join").put("requestId", UUID.randomUUID().toString()).toString())
-                        }
-                        "queue.waiting" -> {
                             if (!connectionProvided) {
                                 connectionProvided = true
-                                onConnected(MatchmakingConnection(webSocket))
+                                matchmakingConnection?.let(onConnected)
                             }
+                        }
+                        "queue.waiting" -> {
                             onEvent(MatchmakingEvent.Waiting(json.optInt("position", 1)))
                         }
                         "queue.cancelled" -> onEvent(MatchmakingEvent.QueueCancelled)
@@ -634,14 +660,20 @@ class MatchmakingRepository {
                         "match.cancelled" -> onEvent(MatchmakingEvent.Cancelled(json.optString("reason"), json.optBoolean("requeued")))
                         "error" -> if (json.optString("code") != "CANCEL_NOT_ALLOWED") {
                             failureAlreadyReported = true
+                            val code = json.optString("code", "SERVER_ERROR")
+                            val message = if (code == "ALREADY_CONNECTED") {
+                                "Esta cuenta ya está abierta en otro móvil o emulador. Cierra FortRush allí; para jugar 1 contra 1, cada jugador necesita una cuenta distinta."
+                            } else {
+                                json.optString("message", "No se pudo buscar partida.") + " ($code)"
+                            }
                             onEvent(MatchmakingEvent.Failure(
-                                json.optString("message", "No se pudo buscar partida.") +
-                                    " (${json.optString("code", "SERVER_ERROR")})"
+                                message
                             ))
                         }
                     }
                 }
                 override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                    matchmakingConnection?.notifySocketClosed()
                     if (failureAlreadyReported) return
                     failureAlreadyReported = true
                     val detail = response?.let { "HTTP ${it.code}" } ?: t.cause?.javaClass?.simpleName
@@ -649,6 +681,7 @@ class MatchmakingRepository {
                     onEvent(MatchmakingEvent.Failure("No se pudo abrir la conexión con el servidor ($detail). Reintenta."))
                 }
                 override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                    matchmakingConnection?.notifySocketClosed()
                     if (!failureAlreadyReported && code != 1000) {
                         failureAlreadyReported = true
                         onEvent(MatchmakingEvent.Failure("El servidor cerró la conexión de emparejamiento ($code). Reintenta."))

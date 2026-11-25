@@ -81,6 +81,7 @@ fun FortRushApp(userId: String, onSignOut: () -> Unit = {}) {
     var showNicknameDialog by remember { mutableStateOf(false) }
     var showCooldownDialog by remember { mutableStateOf(false) }
     var matchmakingConnection by remember { mutableStateOf<MatchmakingConnection?>(null) }
+    var matchmakingRetryPending by remember { mutableStateOf(false) }
     var matchmakingStage by remember { mutableStateOf(MatchmakingStage.SEARCHING) }
     var queuePosition by remember { mutableIntStateOf(0) }
     var opponentNickname by remember { mutableStateOf<String?>(null) }
@@ -101,6 +102,7 @@ fun FortRushApp(userId: String, onSignOut: () -> Unit = {}) {
     val currentProfile by rememberUpdatedState(profile)
 
     fun startMatchmaking() {
+        matchmakingRetryPending = false
         localBotDebug = false
         matchmakingStage = MatchmakingStage.SEARCHING
         matchmakingError = null
@@ -511,7 +513,29 @@ fun FortRushApp(userId: String, onSignOut: () -> Unit = {}) {
                                     val activeConnection = matchmakingConnection
                                     if (activeConnection == null) cancelWhenConnected = true else activeConnection.cancelSearch()
                                 },
-                                onRetry = { matchmakingConnection?.close(); matchmakingConnection = null; startMatchmaking() }
+                                onRetry = {
+                                    if (!matchmakingRetryPending) {
+                                        val previousConnection = matchmakingConnection
+                                        matchmakingConnection = null
+                                        if (previousConnection == null) {
+                                            startMatchmaking()
+                                        } else {
+                                            matchmakingRetryPending = true
+                                            matchmakingError = "Cerrando la conexión anterior…"
+                                            scope.launch {
+                                                val closed = previousConnection.closeAndWait()
+                                                matchmakingRetryPending = false
+                                                if (destination == MainDestination.MATCHMAKING) {
+                                                    if (closed) startMatchmaking()
+                                                    else {
+                                                        matchmakingStage = MatchmakingStage.ERROR
+                                                        matchmakingError = "No se pudo cerrar la conexión anterior. Cierra FortRush por completo y vuelve a abrirlo."
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                             )
                         }
                     }

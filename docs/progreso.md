@@ -128,3 +128,10 @@ Estado: implementado en el árbol local de `main`; **todavía no desplegado en C
 - Cambio local: el dibujo online ahora interpola las coordenadas `x/y` autoritativas que envía el servidor, en vez de volver a calcularlas en Android con `pathDistance`; el Canvas de tropas y proyectiles recibe prioridad de dibujo explícita (`zIndex`).
 - Backup antes de editar: `staging/backups/fortrush-before-online-troop-render-2026-11-25.bundle`, verificado con `git bundle verify`.
 - Comprobación: `:app:assembleDebug --offline` terminó con `BUILD SUCCESSFUL`; APK generada en `app/build/outputs/apk/debug/app-debug.apk`. No se ejecutaron tests automáticos. El cambio quedó en un commit descriptivo local en `main`; todavía no se ha empujado. Sigue pendiente instalar esta APK y confirmar visualmente las tropas en una partida online.
+
+## 25/11/2026 — reintento de emparejamiento con conexión anterior
+
+- La captura mostró `ALREADY_CONNECTED`. El Worker rechaza correctamente dos sockets abiertos con el mismo UID. Android, al pulsar «Volver a buscar», cerraba el socket anterior y abría otro sin esperar el cierre remoto, lo que podía provocar el rechazo.
+- Cambio local: Android entrega la conexión al estado de la app al autenticarse; el reintento espera hasta 3 segundos a que el WebSocket cierre antes de abrir uno nuevo. Si no logra cerrarlo, lo explica en pantalla. El error `ALREADY_CONNECTED` ahora indica que hay que cerrar FortRush en el otro dispositivo y que cada jugador necesita su propia cuenta.
+- Backup: `staging/backups/fortrush-before-socket-retry-fix-2026-11-25.bundle`, verificado con `git bundle verify`.
+- Comprobación: `:app:assembleDebug --offline` terminó con `BUILD SUCCESSFUL`. No se ejecutaron tests automáticos, no se cambió el Worker ni se ha probado con dos cuentas/dispositivos. La APK nueva debe probarse para confirmar el reintento.

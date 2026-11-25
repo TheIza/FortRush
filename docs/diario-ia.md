@@ -196,3 +196,10 @@ Responder a la revisión visual de la arena: muralla continua de borde a borde, 
 - Revisión: el Worker incluye en `match.state` las coordenadas normalizadas de cada tropa; Android analiza la lista. Los sprites PNG existen, son transparentes y el Canvas los decodifica.
 - Cambio local: el cliente usa las coordenadas visuales `x/y` enviadas por el servidor e interpola entre snapshots; antes reconstruía la posición desde `pathDistance`. Se dio prioridad explícita al Canvas dinámico. No se tocaron daño, movimiento, cartas ni balance.
 - La APK compiló correctamente; la comprobación visual final requiere instalarla y jugar online. El cambio está en un commit descriptivo local de `main`, todavía sin push; se documentará el resultado real cuando la usuaria lo pruebe.
+
+# 25/11/2026 — error ALREADY_CONNECTED al buscar partida
+
+- La captura mostraba `ALREADY_CONNECTED`: el mismo UID ya tenía un WebSocket abierto.
+- La revisión detectó que «Volver a buscar» solicitaba cerrar el socket y empezaba otra conexión inmediatamente. Se hizo que el reintento espere el callback de cierre del WebSocket (máximo 3 segundos) y que, si no llega, pida cerrar la app y abrirla de nuevo.
+- El mensaje para cuentas duplicadas ahora explica que se cierre la app en el otro móvil/emulador y que los dos jugadores usen cuentas distintas.
+- La APK compiló correctamente con `:app:assembleDebug --offline`. No se ejecutaron tests ni se probó aún el caso con dos móviles/cuentas; se debe verificar después de instalar la APK.
