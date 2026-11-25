@@ -181,7 +181,8 @@ data class MatchGameTroop(
     val card: String,
     val point: MatchPoint,
     val health: Float,
-    val maxHealth: Float
+    val maxHealth: Float,
+    val pathDistance: Float? = null
 )
 data class MatchGameTower(val slotId: String, val ownerPlayerNumber: Int, val card: String)
 data class MatchGameProjectile(
@@ -200,7 +201,9 @@ data class MatchGameResult(
     val player1WallHealth: Float,
     val player2WallHealth: Float,
     val player1CastleHealth: Float,
-    val player2CastleHealth: Float
+    val player2CastleHealth: Float,
+    val profileRewardCoins: Int? = null,
+    val profileRewardSettled: Boolean = false
 )
 data class MatchGameSnapshot(
     val sequence: Long,
@@ -253,7 +256,9 @@ private fun JSONObject.gameResult(): MatchGameResult? {
         player1WallHealth = result.optDouble("player1WallHealth", 0.0).toFloat(),
         player2WallHealth = result.optDouble("player2WallHealth", 0.0).toFloat(),
         player1CastleHealth = result.optDouble("player1CastleHealth", 0.0).toFloat(),
-        player2CastleHealth = result.optDouble("player2CastleHealth", 0.0).toFloat()
+        player2CastleHealth = result.optDouble("player2CastleHealth", 0.0).toFloat(),
+        profileRewardCoins = result.optInt("profileRewardCoins", -1).takeIf { it >= 0 },
+        profileRewardSettled = result.optBoolean("profileRewardSettled", false)
     )
 }
 
@@ -273,7 +278,8 @@ internal fun JSONObject.gameSnapshot(): MatchGameSnapshot? {
         val health = item.optDouble("health", Double.NaN).toFloat()
         val maxHealth = item.optDouble("maxHealth", Double.NaN).toFloat()
         if (owner !in 1..2 || !health.isFinite() || !maxHealth.isFinite() || maxHealth <= 0f) return@mapNotNull null
-        MatchGameTroop(item.optString("id"), owner, item.optString("card"), point, health, maxHealth)
+        MatchGameTroop(item.optString("id"), owner, item.optString("card"), point, health, maxHealth,
+            item.optDouble("pathDistance", Double.NaN).toFloat().takeIf { it.isFinite() })
     }
     val towers = optJSONArray("towers") ?: return null
     val parsedTowers = (0 until towers.length()).mapNotNull { index ->

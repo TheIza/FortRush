@@ -163,3 +163,22 @@ Responder a la revisión visual de la arena: muralla continua de borde a borde, 
 
 ### Pendiente
 - En ambos móviles, cancelar la búsqueda atascada y volver a pulsar «Jugar» para validar emparejamiento real entre los dos UID. No hace falta reinstalar para recibir el arreglo del Worker. Si vuelve a fallar, registrar el mensaje que muestre la app y revisar los eventos nuevos del Worker.
+## 25/11/2026 — Panel de partida, recompensa y movimiento
+
+### Objetivo y cambios locales
+- Mostrar el apodo real de la cuenta emparejada y resolver el saldo de perfil faltante al final de partida.
+- Ampliar el avatar de la otra persona y hacer más legibles las vidas de muro y castillo de ambos lados; los números pasan a 11 sp y las barras a 9 dp.
+- Reducir los saltos de movimiento sin cambiar las reglas: las instantáneas del servidor pasan de 1 s a 250 ms; Android interpola posiciones con la distancia recibida sobre el camino y anima proyectiles entre actualizaciones.
+- Guardar resultado, contadores y monedas de perfil en una transacción Firestore. El ledger por `matchId` protege contra duplicados; el Durable Object conserva y reintenta operaciones pendientes.
+- Añadir a la lista futura la selección de avatares desde Usuario.
+
+### Decisiones
+- Se usaron los valores ya documentados: 250 monedas por victoria, 100 por empate y 0 por derrota. El saldo del perfil sigue separado de las monedas temporales de batalla.
+- No se aceptan apodos del payload Android como identidad: el Worker consulta los apodos asociados a los UID autenticados.
+- El intervalo de 250 ms implica unas 960 alarmas en una partida máxima de cuatro minutos. Se conservará Cloudflare Workers Free, sin activar facturación. La documentación oficial consultada indica 100.000 solicitudes diarias de Durable Objects en Free, incluidas alarmas; superar el límite gratuito rechaza operaciones.
+
+### Comprobaciones reales y límites
+- `node --check` pasó para `index.mjs`, `profile-api.mjs` y `match-engine.mjs`.
+- `wrangler deploy --dry-run` empaquetó correctamente el Worker y terminó sin desplegarlo.
+- `:app:compileDebugKotlin --offline` había terminado con `BUILD SUCCESSFUL` antes del último ajuste visual de 6 a 9 dp. La compilación posterior se detuvo antes de compilar por `AccessDeniedException` en `.gradle/9.6.0/fileHashes.lock`; no da un resultado sobre Kotlin.
+- `git diff --check` pasó. No se ejecutaron tests automáticos ni una prueba multijugador real. Los cambios siguen locales en `main`; el Worker publicado sigue en la versión anterior hasta ejecutar las pruebas y desplegar.

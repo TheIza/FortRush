@@ -1,5 +1,5 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { handleProfileApi, ProfileApiError } from "./profile-api.mjs";
+import { handleProfileApi, loadMatchNicknames, ProfileApiError, settleMatchProfiles } from "./profile-api.mjs";
 import { getNicknamePolicyMessage } from "../../src/nickname-policy.mjs";
 import { createSharedMap } from "./shared-map.mjs";
 import {
@@ -20,7 +20,9 @@ import {
 const FIREBASE_JWKS = createRemoteJWKSet(
   new URL("https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com")
 );
-const MATCHMAKING_VERSION = "lifecycle-2026-11-25.1";
+const MATCHMAKING_VERSION = "profile-rewards-2026-11-25.1";
+const MATCH_STATE_INTERVAL_MS = 250;
+const PENDING_MATCH_REWARDS_KEY = "pendingMatchRewards";
 
 async function verifyFirebaseIdentity(token, projectId) {
   const { payload } = await jwtVerify(token, FIREBASE_JWKS, {
@@ -138,22 +140,44 @@ function publishGameState(ctx, match, nowMs = Date.now()) {
   const socketsByUid = new Map(ctx.getWebSockets().map((socket) => [socket.deserializeAttachment()?.uid, socket]));
   for (const player of match.players) {
     const socket = socketsByUid.get(player.uid);
+    const state = createGameSnapshot(match, player.playerNumber, nowMs);
+    if (state.result) state.result = resultForPlayer(match, player);
     send(socket, "match.state", {
       matchId: match.matchId,
-      state: createGameSnapshot(match, player.playerNumber, nowMs),
+      state,
       economy: economySnapshot(match, player, nowMs)
     });
   }
-  if (match.game.result && !match.game.resultBroadcasted) {
-    match.game.resultBroadcasted = true;
+  if (match.game.result) {
+    const settlementStatus = match.rewardSettlement?.status ?? "PENDING";
+    if (match.game.resultBroadcastedStatus === settlementStatus) return;
+    match.game.resultBroadcastedStatus = settlementStatus;
     for (const player of match.players) {
       send(socketsByUid.get(player.uid), "match.result", {
         matchId: match.matchId,
         balanceVersion: match.balance.version,
-        ...match.game.result
+        ...resultForPlayer(match, player)
       });
     }
   }
+}
+
+function resultForPlayer(match, player) {
+  const settled = match.rewardSettlement?.status === "SETTLED";
+  return {
+    ...match.game.result,
+    profileRewardCoins: settled ? (match.rewardSettlement.awardsByUid?.[player.uid] ?? 0) : null,
+    profileRewardSettled: settled
+  };
+}
+
+function matchRewardTask(match) {
+  return {
+    matchId: match.matchId,
+    balance: match.balance,
+    players: match.players.map(({ uid, playerNumber }) => ({ uid, playerNumber })),
+    game: { result: match.game.result }
+  };
 }
 
 export class WebSocketProbe {
@@ -254,6 +278,17 @@ export class WebSocketProbe {
 
   async pairQueue(queue) {
     const activeMatch = await this.ctx.storage.get("match");
+    if (activeMatch?.phase === "FINISHED" && activeMatch.game?.result) {
+      await this.settleFinishedMatch(activeMatch);
+      publishGameState(this.ctx, activeMatch);
+      await this.clearAlarmPreservingPendingRewards();
+      for (const socket of this.ctx.getWebSockets()) {
+        const attachment = socket.deserializeAttachment() ?? {};
+        if (attachment.matchId === activeMatch.matchId) {
+          socket.serializeAttachment({ ...attachment, matchId: null, playerNumber: null, queueSequence: null });
+        }
+      }
+    }
     if (activeMatch && !["FINISHED", "CANCELLED"].includes(activeMatch.phase)) {
       if ((["IN_MATCH", "SUDDEN_DEATH"].includes(activeMatch.phase)) && !activeMatch.game) {
         activeMatch.phase = "CANCELLED";
@@ -265,7 +300,7 @@ export class WebSocketProbe {
           socket.serializeAttachment({ ...attachment, matchId: null, playerNumber: null, queueSequence: null });
           send(socket, "match.cancelled", { reason: "SERVER_STATE_LOST", requeued: false });
         }
-        await this.ctx.storage.deleteAlarm?.();
+        await this.clearAlarmPreservingPendingRewards();
       } else if (["LOADING", "COUNTDOWN"].includes(activeMatch.phase)) {
         const liveSockets = new Map(this.ctx.getWebSockets().filter(socket => socket.readyState === WebSocket.OPEN)
           .map(socket => [socket.deserializeAttachment()?.uid, socket]));
@@ -282,7 +317,7 @@ export class WebSocketProbe {
         queue.sort((a, b) => a.sequence - b.sequence);
         await this.ctx.storage.put("queue", queue);
         await this.ctx.storage.put("match", null);
-        await this.ctx.storage.deleteAlarm?.();
+        await this.clearAlarmPreservingPendingRewards();
         this.notifyQueue(queue);
       } else {
         console.warn("matchmaking", {
@@ -307,6 +342,12 @@ export class WebSocketProbe {
       if (active.length >= 2) await this.pairQueue(active);
       return;
     }
+    let nicknames = {};
+    try {
+      nicknames = await loadMatchNicknames(this.env, selected.map((entry) => entry.uid));
+    } catch (error) {
+      console.error("matchmaking", { event: "nickname-lookup-failed", name: error?.name ?? "Error" });
+    }
     const mapSeed = crypto.randomUUID();
     const map = createSharedMap(mapSeed);
     const match = {
@@ -316,6 +357,7 @@ export class WebSocketProbe {
       loadingDeadlineMs: Date.now() + 30_000,
       players: players.map(({ uid, sequence }, index) => ({
         uid,
+        nickname: nicknames[uid] ?? "Jugador",
         sequence,
         playerNumber: index + 1,
         loaded: false,
@@ -338,14 +380,15 @@ export class WebSocketProbe {
     await this.ctx.storage.put("match", match);
     const waiting = orderedQueue.slice(2);
     await this.ctx.storage.put("queue", waiting);
-    await this.ctx.storage.setAlarm?.(match.loadingDeadlineMs);
+    await this.scheduleAlarmAt(match.loadingDeadlineMs);
     players.forEach((player, index) => {
       const playerNumber = index + 1;
+      const opponent = match.players[1 - index];
       player.socket.serializeAttachment({ ...player.socket.deserializeAttachment(), queueSequence: null, matchId: match.matchId, playerNumber });
       send(player.socket, "match.found", {
         matchId: match.matchId,
         playerNumber,
-        opponentNickname: "Rival de prueba",
+        opponentNickname: opponent.nickname,
         map: match.map
       });
     });
@@ -384,13 +427,14 @@ export class WebSocketProbe {
     match.countdown = 3;
     await this.ctx.storage.put("match", match);
     this.broadcast(match, "match.countdown", { seconds: match.countdown });
-    await this.ctx.storage.setAlarm(Date.now() + 1_000);
+    await this.scheduleAlarmAt(Date.now() + 1_000);
   }
 
   async publishMatchState(match, nowMs = Date.now()) {
+    if (match.phase === "FINISHED" && match.game?.result) await this.settleFinishedMatch(match);
     publishGameState(this.ctx, match, nowMs);
     if (match.phase !== "FINISHED") return;
-    await this.ctx.storage.deleteAlarm?.();
+    await this.clearAlarmPreservingPendingRewards();
     for (const socket of this.ctx.getWebSockets()) {
       const attachment = socket.deserializeAttachment() ?? {};
       if (attachment.matchId === match.matchId) {
@@ -401,12 +445,84 @@ export class WebSocketProbe {
     if (waiting.length >= 2) await this.pairQueue(waiting);
   }
 
+  async settleFinishedMatch(match) {
+    if (!match?.game?.result || ["SETTLED", "PENDING"].includes(match.rewardSettlement?.status)) return;
+    const task = matchRewardTask(match);
+    let pending = await this.ctx.storage.get(PENDING_MATCH_REWARDS_KEY) ?? [];
+    if (!pending.some((entry) => entry.matchId === task.matchId)) {
+      pending = [...pending, task];
+      await this.ctx.storage.put(PENDING_MATCH_REWARDS_KEY, pending);
+    }
+    await this.scheduleAlarmAt(Date.now() + 5_000);
+    try {
+      match.rewardSettlement = await settleMatchProfiles(this.env, match);
+      match.rewardSettlement.settledAtServerMs = Date.now();
+      pending = pending.filter((entry) => entry.matchId !== match.matchId);
+      await this.ctx.storage.put(PENDING_MATCH_REWARDS_KEY, pending);
+    } catch (error) {
+      match.rewardSettlement = { status: "PENDING" };
+      console.error("match-reward-settlement", {
+        event: "retry-scheduled",
+        matchId: match.matchId,
+        name: error?.name ?? "Error",
+        code: error?.code ?? "UNKNOWN"
+      });
+    }
+    const storedMatch = await this.ctx.storage.get("match");
+    if (storedMatch?.matchId === match.matchId) await this.ctx.storage.put("match", match);
+  }
+
+  async retryPendingMatchRewards() {
+    const pending = await this.ctx.storage.get(PENDING_MATCH_REWARDS_KEY) ?? [];
+    if (pending.length === 0) return;
+    const unresolved = [];
+    const completed = [];
+    for (const task of pending) {
+      try {
+        completed.push([task, await settleMatchProfiles(this.env, task)]);
+      } catch (error) {
+        unresolved.push(task);
+        console.error("match-reward-settlement", {
+          event: "retry-failed",
+          matchId: task.matchId,
+          name: error?.name ?? "Error",
+          code: error?.code ?? "UNKNOWN"
+        });
+      }
+    }
+    await this.ctx.storage.put(PENDING_MATCH_REWARDS_KEY, unresolved);
+    for (const [task, settlement] of completed) {
+      const current = await this.ctx.storage.get("match");
+      if (current?.matchId !== task.matchId || current.phase !== "FINISHED") continue;
+      current.rewardSettlement = { ...settlement, settledAtServerMs: Date.now() };
+      await this.ctx.storage.put("match", current);
+      await this.publishMatchState(current);
+    }
+    if (unresolved.length > 0) await this.scheduleAlarmAt(Date.now() + 5_000);
+  }
+
+  async scheduleAlarmAt(timestamp) {
+    const current = await this.ctx.storage.getAlarm?.();
+    if (!Number.isFinite(current) || current > timestamp) await this.ctx.storage.setAlarm?.(timestamp);
+  }
+
+  async clearAlarmPreservingPendingRewards() {
+    await this.ctx.storage.deleteAlarm?.();
+    const pending = await this.ctx.storage.get(PENDING_MATCH_REWARDS_KEY) ?? [];
+    if (pending.length > 0) await this.scheduleAlarmAt(Date.now() + 5_000);
+  }
+
   async alarm() {
+    await this.retryPendingMatchRewards();
     const match = await this.ctx.storage.get("match");
     if (!match) return;
+    if (match.phase === "FINISHED" && match.game?.result) {
+      await this.publishMatchState(match);
+      return;
+    }
     if (match.phase === "LOADING") {
       if (Date.now() < match.loadingDeadlineMs) {
-        await this.ctx.storage.setAlarm?.(match.loadingDeadlineMs);
+        await this.scheduleAlarmAt(match.loadingDeadlineMs);
         return;
       }
       const loadedPlayers = match.players.filter((player) => player.loaded);
@@ -437,11 +553,7 @@ export class WebSocketProbe {
       advanceCombat(match, Date.now());
       await this.ctx.storage.put("match", match);
       await this.publishMatchState(match);
-      if (match.phase === "FINISHED") {
-        const waiting = await this.ctx.storage.get("queue") ?? [];
-        if (waiting.length >= 2) await this.pairQueue(waiting);
-      }
-      else await this.ctx.storage.setAlarm?.(Date.now() + 1_000);
+      if (match.phase !== "FINISHED") await this.scheduleAlarmAt(Date.now() + MATCH_STATE_INTERVAL_MS);
       return;
     }
     if (match.phase !== "COUNTDOWN") return;
@@ -449,7 +561,7 @@ export class WebSocketProbe {
       match.countdown -= 1;
       await this.ctx.storage.put("match", match);
       this.broadcast(match, "match.countdown", { seconds: match.countdown });
-      await this.ctx.storage.setAlarm(Date.now() + 1_000);
+      await this.scheduleAlarmAt(Date.now() + 1_000);
       return;
     }
     match.balance ??= cloneMatchBalance();
@@ -467,7 +579,7 @@ export class WebSocketProbe {
         state: createGameSnapshot(match, player?.playerNumber ?? 0, match.startedAtServerMs)
       });
     });
-    await this.ctx.storage.setAlarm?.(Date.now() + 1_000);
+    await this.scheduleAlarmAt(Date.now() + MATCH_STATE_INTERVAL_MS);
   }
 
   async deployTroop(socket, attachment, payload) {
@@ -667,7 +779,7 @@ export class WebSocketProbe {
       const survivor = match.players.find((entry) => entry.uid !== attachment.uid);
       const survivorSocket = otherSockets.find((candidate) => candidate.deserializeAttachment()?.uid === survivor?.uid);
       await this.ctx.storage.delete("match");
-      await this.ctx.storage.deleteAlarm?.();
+      await this.clearAlarmPreservingPendingRewards();
       if (survivor && survivorSocket) {
         survivorSocket.serializeAttachment({ ...survivorSocket.deserializeAttachment(), matchId: null,
           playerNumber: null, queueSequence: survivor.sequence });

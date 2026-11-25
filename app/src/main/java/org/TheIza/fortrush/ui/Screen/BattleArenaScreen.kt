@@ -32,6 +32,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -149,6 +150,11 @@ fun BattleArenaScreen(
     val economyReceivedAt = remember(economy) { SystemClock.elapsedRealtime() }
     var economyTick by remember(map.seed) { mutableLongStateOf(0L) }
     var gameClockTick by remember(map.seed) { mutableLongStateOf(0L) }
+    var previousGameState by remember(map.seed) { mutableStateOf<MatchGameSnapshot?>(null) }
+    var latestGameState by remember(map.seed) { mutableStateOf<MatchGameSnapshot?>(null) }
+    var previousSnapshotAtMs by remember(map.seed) { mutableLongStateOf(0L) }
+    var latestSnapshotAtMs by remember(map.seed) { mutableLongStateOf(0L) }
+    val animationFrame = remember(map.seed) { mutableLongStateOf(0L) }
     var showSurrenderConfirmation by remember(map.seed) { mutableStateOf(false) }
     var showSellConfirmation by remember(map.seed) { mutableStateOf<String?>(null) }
     LaunchedEffect(economy) {
@@ -162,6 +168,22 @@ fun BattleArenaScreen(
         while (gameState != null && gameState.phase != "FINISHED") {
             delay(250)
             gameClockTick += 1L
+        }
+    }
+    LaunchedEffect(gameState?.sequence) {
+        val snapshot = gameState ?: return@LaunchedEffect
+        if (snapshot.sequence == latestGameState?.sequence) return@LaunchedEffect
+        previousGameState = latestGameState
+        previousSnapshotAtMs = latestSnapshotAtMs
+        latestGameState = snapshot
+        latestSnapshotAtMs = SystemClock.elapsedRealtime()
+    }
+    LaunchedEffect(map.seed, gameState?.phase) {
+        if (gameState?.phase == "IN_MATCH" || gameState?.phase == "SUDDEN_DEATH") {
+            while (true) {
+                delay(16)
+                animationFrame.longValue += 1L
+            }
         }
     }
     val currentCoins = remember(economy, economyTick) {
@@ -318,14 +340,18 @@ fun BattleArenaScreen(
                 } else null,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(60.dp)
+                    .height(76.dp)
                     .padding(horizontal = 9.dp, vertical = 4.dp)
             )
 
             ArenaMapCanvas(
                 map = map,
                 playerNumber = playerNumber,
-                gameState = gameState,
+                gameState = latestGameState,
+                previousGameState = previousGameState,
+                previousSnapshotAtMs = previousSnapshotAtMs,
+                latestSnapshotAtMs = latestSnapshotAtMs,
+                animationFrame = animationFrame,
                 destroyedWallOwners = gameState?.let { state ->
                     buildSet {
                         if (state.player1.wallHealth <= 0f) add(1)
@@ -480,7 +506,7 @@ fun BattleArenaScreen(
             )
         }
         displayedResult?.let { result ->
-            ArenaResultPanel(result, playerNumber, onReturnHome)
+            ArenaResultPanel(result, playerNumber, opponentNickname, onReturnHome)
         }
     }
 }
@@ -510,7 +536,7 @@ private fun ArenaOpponentStatus(
     ) {
         Box(
             Modifier
-                .size(35.dp)
+                .size(46.dp)
                 .clip(CircleShape)
                 .background(playerColor),
             contentAlignment = Alignment.Center
@@ -518,38 +544,27 @@ private fun ArenaOpponentStatus(
             Image(
                 painter = painterResource(R.drawable.icono_castillo),
                 contentDescription = null,
-                modifier = Modifier.size(24.dp),
+                modifier = Modifier.size(33.dp),
                 contentScale = ContentScale.Fit
             )
         }
         Spacer(Modifier.width(8.dp))
         Column(Modifier.weight(1f)) {
             Text(
-                text = nickname.ifBlank { "Rival" },
+                text = nickname.ifBlank { "Jugador" },
                 color = Color.White,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            Spacer(Modifier.height(2.dp))
-            Text(
-                "Castillo ${castleHealth?.toInt()?.coerceAtLeast(0) ?: 400}/400 · Muro ${wallHealth?.toInt()?.coerceAtLeast(0) ?: 500}/500",
-                color = Color(0xFFD4DBE2), fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
-            )
-            Spacer(Modifier.height(3.dp))
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(5.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFF151B22))
-            ) {
-                Box(
-                    Modifier.fillMaxWidth(((castleHealth ?: 400f) / 400f).coerceIn(0f, 1f))
-                        .fillMaxHeight()
-                        .clip(CircleShape)
-                        .background(playerColor)
+            Spacer(Modifier.height(4.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                ArenaLifeMeter("Castillo", castleHealth, 400f, playerColor, Modifier.weight(1f))
+                ArenaLifeMeter(
+                    "Muro", wallHealth, 500f,
+                    if ((wallHealth ?: 500f) > 0f) Color(0xFF65BF79) else Color(0xFFE05C54),
+                    Modifier.weight(1f)
                 )
             }
         }
@@ -602,6 +617,35 @@ private fun ArenaOpponentStatus(
 }
 
 @Composable
+private fun ArenaLifeMeter(
+    label: String,
+    health: Float?,
+    maximum: Float,
+    color: Color,
+    modifier: Modifier = Modifier
+) {
+    val current = (health ?: maximum).coerceIn(0f, maximum)
+    Column(
+        modifier.semantics {
+            contentDescription = "$label ${current.toInt()} de ${maximum.toInt()} de vida"
+        }
+    ) {
+        Text(
+            "$label ${current.toInt()}/${maximum.toInt()}",
+            color = Color(0xFFE6EAF0), fontSize = 11.sp, fontWeight = FontWeight.Bold,
+            maxLines = 1, overflow = TextOverflow.Clip
+        )
+        Spacer(Modifier.height(2.dp))
+        Box(Modifier.fillMaxWidth().height(9.dp).clip(CircleShape).background(Color(0xFF151B22))) {
+            Box(
+                Modifier.fillMaxWidth((current / maximum).coerceIn(0f, 1f))
+                    .fillMaxHeight().clip(CircleShape).background(color)
+            )
+        }
+    }
+}
+
+@Composable
 private fun ArenaConfirmPanel(
     title: String,
     message: String,
@@ -632,7 +676,12 @@ private fun ArenaConfirmPanel(
 }
 
 @Composable
-private fun ArenaResultPanel(result: MatchGameResult, playerNumber: Int, onReturnHome: () -> Unit) {
+private fun ArenaResultPanel(
+    result: MatchGameResult,
+    playerNumber: Int,
+    opponentNickname: String,
+    onReturnHome: () -> Unit
+) {
     val title = when (result.winnerPlayerNumber) {
         null -> "¡Empate!"
         playerNumber -> "¡Victoria!"
@@ -652,8 +701,26 @@ private fun ArenaResultPanel(result: MatchGameResult, playerNumber: Int, onRetur
         ) {
             Text(title, color = if (result.winnerPlayerNumber == playerNumber) Color(0xFFFFD65C) else Color.White,
                 fontSize = 26.sp, fontWeight = FontWeight.Black)
-            Text("Castillo propio: ${healthForPlayer(result, playerNumber).toInt()} · Rival: ${healthForPlayer(result, if (playerNumber == 1) 2 else 1).toInt()}",
-                color = Color.White, fontSize = 14.sp)
+            Text(
+                "Tu castillo: ${healthForPlayer(result, playerNumber).toInt()} · " +
+                    "Castillo de ${opponentNickname.ifBlank { "Jugador" }}: ${healthForPlayer(result, if (playerNumber == 1) 2 else 1).toInt()}",
+                color = Color.White, fontSize = 14.sp
+            )
+            when {
+                result.profileRewardSettled -> {
+                    val reward = result.profileRewardCoins ?: 0
+                    Text(
+                        if (reward > 0) "+$reward monedas añadidas a tu perfil" else "No has ganado monedas esta vez",
+                        color = Color(0xFFFFD66E), fontSize = 15.sp, fontWeight = FontWeight.Bold,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                }
+                else -> Text(
+                    "Guardando la recompensa en tu perfil…",
+                    color = Color(0xFFFFD66E), fontSize = 14.sp, fontWeight = FontWeight.Bold,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+            }
             ArenaDialogButton("Volver a Inicio", Color(0xFFB87925), onReturnHome)
         }
     }
@@ -738,16 +805,25 @@ private fun ArenaCardHand(
             Spacer(Modifier.width(9.dp))
             Text("+$incomePerSecond/s", color = Color(0xFFD4DBE2), fontWeight = FontWeight.Bold, fontSize = 11.sp)
         }
-        Text(
-            text = "Tu muro ${ownWallHealth?.toInt()?.coerceAtLeast(0) ?: 500}/500 · Castillo ${ownCastleHealth?.toInt()?.coerceAtLeast(0) ?: 400}/400" +
-                if (phase == "SUDDEN_DEATH") " · MUERTE SÚBITA" else "",
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 15.dp),
-            color = if (phase == "SUDDEN_DEATH") Color(0xFFFF927B) else Color(0xFFD4DBE2),
-            fontWeight = FontWeight.Bold,
-            fontSize = 10.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 15.dp, vertical = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            ArenaLifeMeter(
+                "Tu muro", ownWallHealth, 500f,
+                if ((ownWallHealth ?: 500f) > 0f) Color(0xFF65BF79) else Color(0xFFE05C54),
+                Modifier.weight(1f)
+            )
+            ArenaLifeMeter("Tu castillo", ownCastleHealth, 400f, Color(0xFF4E9BFF), Modifier.weight(1f))
+        }
+        if (phase == "SUDDEN_DEATH") {
+            Text(
+                "MUERTE SÚBITA",
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 15.dp),
+                color = Color(0xFFFF927B), fontWeight = FontWeight.Black, fontSize = 10.sp,
+                maxLines = 1
+            )
+        }
         if (!message.isNullOrBlank()) {
             Text(
                 text = message,
@@ -1037,6 +1113,10 @@ private fun ArenaMapCanvas(
     map: MatchMap,
     playerNumber: Int,
     gameState: MatchGameSnapshot?,
+    previousGameState: MatchGameSnapshot?,
+    previousSnapshotAtMs: Long,
+    latestSnapshotAtMs: Long,
+    animationFrame: State<Long>,
     destroyedWallOwners: Set<Int>,
     towerPlacements: List<ArenaTowerPlacement>,
     pendingSlotIds: Set<String>,
@@ -1093,8 +1173,9 @@ private fun ArenaMapCanvas(
     val currentOnTapOwnSlot by rememberUpdatedState(onTapOwnSlot)
     val currentOnTapPath by rememberUpdatedState(onTapPath)
 
+    Box(modifier) {
     Canvas(
-        modifier
+        Modifier.fillMaxSize()
             .onGloballyPositioned(onPositioned)
             .pointerInput(map.seed, playerNumber, slotVisuals) {
             detectTapGestures { tap ->
@@ -1321,24 +1402,55 @@ private fun ArenaMapCanvas(
             )
         }
 
+    }
+
+    Canvas(Modifier.fillMaxSize()) {
+        animationFrame.value
+        val boardWidth = minOf(size.width, size.height * 9f / 16f)
+        val boardLeft = (size.width - boardWidth) / 2f
+        fun oriented(point: MatchPoint): Offset {
+            val x = if (playerNumber == 2) 1f - point.x else point.x
+            val y = if (playerNumber == 2) 1f - point.y else point.y
+            return Offset(boardLeft + x * boardWidth, y * size.height)
+        }
+
+        val elapsedSinceSnapshot = (SystemClock.elapsedRealtime() - latestSnapshotAtMs).coerceIn(0L, 1_000L).toFloat()
+        val transitionMs = (latestSnapshotAtMs - previousSnapshotAtMs).toFloat().coerceIn(50f, 1_000f)
+        val fraction = if (previousGameState == null || previousSnapshotAtMs == 0L) 1f
+            else (elapsedSinceSnapshot / transitionMs).coerceIn(0f, 1f)
+
         gameState?.troops?.forEach { troop ->
-            val point = oriented(troop.point)
+            val prior = previousGameState?.troops?.firstOrNull { it.id == troop.id }
+            val pathDistance = if (prior?.pathDistance != null && troop.pathDistance != null) {
+                prior.pathDistance + (troop.pathDistance - prior.pathDistance) * fraction
+            } else null
+            val point = pathDistance?.let { pointAtMapDistance(map, it) } ?: prior?.let {
+                MatchPoint(
+                    it.point.x + (troop.point.x - it.point.x) * fraction,
+                    it.point.y + (troop.point.y - it.point.y) * fraction
+                )
+            } ?: troop.point
+            val health = prior?.let { it.health + (troop.health - it.health) * fraction } ?: troop.health
+            val presentedTroop = troop.copy(point = point, health = health, pathDistance = pathDistance)
+            val center = oriented(point)
             val ownerColor = if (troop.ownerPlayerNumber == 1) Color(0xFF4E9BFF) else Color(0xFFFF6759)
-            drawCircle(Color(0x8E101820), boardWidth * 0.056f, Offset(point.x, point.y + boardWidth * 0.032f))
-            drawCircle(ownerColor, boardWidth * 0.048f, point)
-            drawCircle(Color(0xFF1D2733), boardWidth * 0.048f, point, style = Stroke(width = 1.5.dp.toPx()))
+            drawCircle(Color(0x8E101820), boardWidth * 0.056f, Offset(center.x, center.y + boardWidth * 0.032f))
+            drawCircle(ownerColor, boardWidth * 0.048f, center)
+            drawCircle(Color(0xFF1D2733), boardWidth * 0.048f, center, style = Stroke(width = 1.5.dp.toPx()))
             val sprite = if (troop.card == MatchTroopCard.ESCUDERO.wireId) escuderoSprite else swordsmanSprite
-            drawTroopSprite(sprite, troop, point, boardWidth * 0.105f)
+            drawTroopSprite(sprite, presentedTroop, center, boardWidth * 0.105f)
         }
         gameState?.projectiles?.forEach { projectile ->
             val start = oriented(projectile.from)
             val end = oriented(projectile.to)
-            val x = start.x + (end.x - start.x) * projectile.progress
-            val y = start.y + (end.y - start.y) * projectile.progress
+            val progress = (projectile.progress + elapsedSinceSnapshot / 400f).coerceIn(0f, 1f)
+            val x = start.x + (end.x - start.x) * progress
+            val y = start.y + (end.y - start.y) * progress
             val color = if (projectile.card == MatchTowerCard.ARROW_TOWER.wireId) Color(0xFFFFE58B) else Color(0xFFFF7C34)
             drawCircle(color, boardWidth * 0.012f, Offset(x, y))
             drawCircle(Color.White.copy(alpha = 0.75f), boardWidth * 0.005f, Offset(x, y))
         }
+    }
     }
 }
 

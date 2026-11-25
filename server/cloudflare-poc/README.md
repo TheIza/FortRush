@@ -4,7 +4,7 @@ Este Worker atiende el API de perfiles y apodos y el juego 1v1 por WebSocket. Un
 
 El código incluye tropas, movimiento y combate, muros/castillos, dos torres, monedas, venta, rendición, temporizador y muerte súbita. La versión activa de balance del código es `fort-rush-2026-11-24.1`. El despliegue y la partida en dos dispositivos deben comprobarse para cada versión antes de considerarlos publicados.
 
-La reconexión de un cliente, la recuperación si la partida se pierde y el guardado de estadísticas/recompensas de perfil siguen pendientes. El generador v2 produce un camino curvo, continuo y simétrico mediante un giro de 180 grados, con siete huecos por jugador por defecto (configurable). El Worker envía geometría, no archivos de arte. El generador evalúa variantes y conserva cinco mapas de respaldo.
+La reconexión de un cliente y la recuperación si se pierde el estado activo siguen pendientes. Las recompensas de perfil se guardan de forma transaccional e idempotente al terminar; el flujo necesita validación manual con dos cuentas reales. El generador v2 produce un camino curvo, continuo y simétrico mediante un giro de 180 grados, con siete huecos por jugador por defecto (configurable). El Worker envía geometría, no archivos de arte. El generador evalúa variantes y conserva cinco mapas de respaldo.
 
 ## Configuración local
 

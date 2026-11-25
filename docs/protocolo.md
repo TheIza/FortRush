@@ -66,9 +66,15 @@ Cuando termina la cuenta atrás, el servidor envía a cada jugador el mismo even
 
 El fragmento omite el detalle de las cartas y la geometría del mapa. El evento real incluye ambos completos. `viewerPlayerNumber` cambia entre destinatarios para que cada móvil sepa cuál es su lado; el resto de la geometría y estado compartido es el mismo.
 
+## Identidad visible y resultado
+
+`match.found.opponentNickname` contiene el apodo guardado en `Usuarios/{uid}.apodo` para el otro UID de la pareja. El Worker lo obtiene de Firestore con credenciales de servidor; no acepta el nombre enviado por el cliente como identidad.
+
+Cuando hay un resultado, el servidor guarda en una transacción las dos estadísticas, las monedas persistentes de cada perfil y un documento idempotente en `ResultadosPartida/{matchId}`. La recompensa es +250 por victoria, +100 por empate y 0 por derrota. `match.result` y `state.result` incluyen `profileRewardCoins` y `profileRewardSettled`; si Firestore no está disponible, el resultado queda pendiente en el Durable Object y se vuelve a intentar sin duplicar la recompensa.
+
 ## Instantáneas de combate
 
-`match.state` envía la instantánea autoritativa a ambos jugadores aproximadamente una vez por segundo y también después de acciones aceptadas o rechazadas. Incluye `sequence`, fase, tiempo, vida de muros/castillos, tropas, torres, proyectiles y resultado. El cliente descarta una instantánea con una secuencia anterior y dibuja las posiciones recibidas; no simula daño ni movimiento.
+`match.state` envía la instantánea autoritativa a ambos jugadores cada 250 ms durante el combate y también después de acciones aceptadas o rechazadas. Incluye `sequence`, fase, tiempo, vida de muros/castillos, tropas, torres, proyectiles y resultado. Cada tropa incluye `pathDistance`, su distancia autoritativa a lo largo del camino. Android interpola visualmente entre dos instantáneas sobre la geometría recibida; no decide movimiento, daño ni resultado.
 
 Las fases principales son `IN_MATCH`, `SUDDEN_DEATH` y `FINISHED`. `remainingMs` llega a cero al comenzar la muerte súbita. `result` es `null` durante el juego y, al finalizar, incluye el ganador o `null` en caso de empate, motivo técnico, tiempo y vidas finales.
 
@@ -171,4 +177,4 @@ Rendición:
 { "type": "match.surrender", "actionId": "uuid-de-la-accion" }
 ```
 
-La acción se limita al juego normal. El Worker termina la partida y comunica el mismo resultado a los dos jugadores mediante `match.state` y `match.result`. La pantalla final muestra victoria, derrota o empate. La persistencia de resultados/recompensas y la reconexión ante una interrupción siguen pendientes.
+La acción se limita al juego normal. El Worker termina la partida y comunica el resultado a los dos jugadores mediante `match.state` y `match.result`. La pantalla final muestra victoria, derrota o empate y las monedas de perfil concedidas. La persistencia de resultado/recompensa es transaccional e idempotente; la reconexión ante una interrupción sigue pendiente.

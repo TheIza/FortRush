@@ -73,9 +73,9 @@ fun MatchmakingScreen(
                         Text("Buscaremos al primer jugador disponible.", color = Color(0xFFE9E2C8), fontSize = 13.sp, textAlign = TextAlign.Center)
                     }
                     MatchmakingStage.LOADING_MAP -> {
-                        Text("¡RIVAL ENCONTRADO!", color = Color(0xFFFFE7A7), fontWeight = FontWeight.Black, fontSize = 21.sp, textAlign = TextAlign.Center)
+                        Text("¡PARTIDA ENCONTRADA!", color = Color(0xFFFFE7A7), fontWeight = FontWeight.Black, fontSize = 21.sp, textAlign = TextAlign.Center)
                         Spacer(Modifier.height(12.dp))
-                        Text("Tu rival: ${opponentNickname.orEmpty()}", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(opponentNickname.orEmpty().ifBlank { "Jugador" }, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Spacer(Modifier.height(10.dp))
                         if (map != null) SharedMapPreview(map, playerNumber, Modifier.fillMaxWidth().height(130.dp))
                         Spacer(Modifier.height(8.dp))
@@ -90,7 +90,7 @@ fun MatchmakingScreen(
                     MatchmakingStage.STARTED -> {
                         Text("¡EMPIEZA LA PARTIDA!", color = Color(0xFFFFE7A7), fontWeight = FontWeight.Black, fontSize = 21.sp, textAlign = TextAlign.Center)
                         Spacer(Modifier.height(10.dp))
-                        Text("Rival: ${opponentNickname.orEmpty()}", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        Text(opponentNickname.orEmpty().ifBlank { "Jugador" }, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                         Spacer(Modifier.height(8.dp))
                         Text("La arena de combate se implementará en el siguiente paso.", color = Color(0xFFE9E2C8), fontSize = 14.sp, textAlign = TextAlign.Center)
                     }

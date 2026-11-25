@@ -441,7 +441,7 @@ export function createGameSnapshot(match, playerNumber, nowMs) {
   const elapsed = Math.max(0, Math.min(nowMs - match.startedAtServerMs, match.balance.match.durationMs + (match.balance.match.suddenDeathDurationMs ?? DEFAULT_SUDDEN_DEATH_MS)));
   const worldTroops = (match.troops ?? []).map((troop) => {
     const point = pointAtDistance(match.map, troop.position);
-    return { id: troop.id, ownerPlayerNumber: troop.ownerPlayerNumber, card: troop.card, x: point.x / match.map.width, y: point.y / match.map.height, health: troop.health, maxHealth: troop.maxHealth };
+    return { id: troop.id, ownerPlayerNumber: troop.ownerPlayerNumber, card: troop.card, x: point.x / match.map.width, y: point.y / match.map.height, pathDistance: troop.position, health: troop.health, maxHealth: troop.maxHealth };
   });
   const worldTowers = (match.towers ?? []).map((tower) => ({ slotId: tower.slotId, ownerPlayerNumber: tower.ownerPlayerNumber, card: tower.card }));
   const worldProjectiles = (match.projectiles ?? []).map((projectile) => {

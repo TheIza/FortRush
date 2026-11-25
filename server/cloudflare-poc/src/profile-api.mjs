@@ -71,6 +71,10 @@ function profileBase(uid, email) {
     apodoNormalizado: "",
     fechaUltimoCambioApodo: null,
     monedas: 0,
+    partidasCompletadas: 0,
+    victorias: 0,
+    derrotas: 0,
+    empates: 0,
     experiencia: 0,
     nivel: 0
   };
@@ -458,6 +462,148 @@ export async function handleProfileApi(request, env, uid, email = "") {
       if (!(error instanceof ProfileApiError) || error.code !== "TRANSACTION_RETRY" || attempt + 1 >= maxAttempts) {
         throw error;
       }
+      await new Promise((resolve) => setTimeout(resolve, 30 * (attempt + 1)));
+    }
+  }
+}
+
+const PROFILE_MATCH_REWARD = Object.freeze({ victory: 250, draw: 100, defeat: 0 });
+
+function nonNegativeCounter(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : 0;
+}
+
+function matchRewardLedgerName(env, matchId) {
+  if (typeof matchId !== "string" || !/^[A-Za-z0-9_-]{1,80}$/.test(matchId)) {
+    throw new ProfileApiError("INVALID_MATCH_ID", 400, "El resultado de partida no es válido.");
+  }
+  return docName(env.FIREBASE_PROJECT_ID, "ResultadosPartida", matchId);
+}
+
+function readExistingMatchSettlement(document, players) {
+  if (readField(document, "jugador1Uid") !== players[0].uid ||
+      readField(document, "jugador2Uid") !== players[1].uid) {
+    throw new ProfileApiError("MATCH_RESULT_CONFLICT", 409, "El resultado de esta partida ya está registrado.");
+  }
+  return {
+    status: "SETTLED",
+    awardsByUid: {
+      [players[0].uid]: nonNegativeCounter(readField(document, "jugador1Recompensa")),
+      [players[1].uid]: nonNegativeCounter(readField(document, "jugador2Recompensa"))
+    },
+    balancesByUid: {
+      [players[0].uid]: nonNegativeCounter(readField(document, "jugador1Saldo")),
+      [players[1].uid]: nonNegativeCounter(readField(document, "jugador2Saldo"))
+    }
+  };
+}
+
+/**
+ * Reads public in-game names from profiles using the server credential. Names
+ * supplied by Android are intentionally not accepted as authoritative here.
+ */
+export async function loadMatchNicknames(env, uids) {
+  const uniqueUids = [...new Set(uids.filter((uid) => typeof uid === "string" && uid.length > 0))];
+  const token = await serviceAccessToken(env);
+  const transaction = await beginTransaction(env, token);
+  try {
+    const names = uniqueUids.map((uid) => docName(env.FIREBASE_PROJECT_ID, "Usuarios", uid));
+    const documents = await batchGet(env, token, transaction, names);
+    const result = Object.fromEntries(uniqueUids.map((uid, index) => {
+      const document = documents.get(names[index]);
+      const nickname = validateNickname(readField(document, "apodo") ?? "");
+      return [uid, nickname.ok ? nickname.nickname : "Jugador"];
+    }));
+    await rollback(env, token, transaction);
+    return result;
+  } catch (error) {
+    await rollback(env, token, transaction);
+    throw error;
+  }
+}
+
+async function settleMatchProfilesOnce(env, match) {
+  const players = [...(match?.players ?? [])].sort((a, b) => a.playerNumber - b.playerNumber);
+  const result = match?.game?.result;
+  if (players.length !== 2 || players.some((player, index) => player.playerNumber !== index + 1 || !player.uid) ||
+      players[0].uid === players[1].uid || !result ||
+      (result.winnerPlayerNumber !== null && ![1, 2].includes(result.winnerPlayerNumber))) {
+    throw new ProfileApiError("INVALID_MATCH_RESULT", 400, "No se pudo guardar el resultado de la partida.");
+  }
+
+  const token = await serviceAccessToken(env);
+  const transaction = await beginTransaction(env, token);
+  const ledgerName = matchRewardLedgerName(env, match.matchId);
+  const userNames = players.map((player) => docName(env.FIREBASE_PROJECT_ID, "Usuarios", player.uid));
+  try {
+    const documents = await batchGet(env, token, transaction, [ledgerName, ...userNames]);
+    const existingLedger = documents.get(ledgerName);
+    if (existingLedger) {
+      const settlement = readExistingMatchSettlement(existingLedger, players);
+      await rollback(env, token, transaction);
+      return settlement;
+    }
+
+    const rewards = players.map((player) => result.winnerPlayerNumber === null
+      ? PROFILE_MATCH_REWARD.draw
+      : result.winnerPlayerNumber === player.playerNumber
+        ? PROFILE_MATCH_REWARD.victory
+        : PROFILE_MATCH_REWARD.defeat);
+    const balances = [];
+    const writes = [];
+    for (let index = 0; index < players.length; index += 1) {
+      const player = players[index];
+      const userDocument = documents.get(userNames[index]) ?? null;
+      const fields = {
+        ...(!userDocument ? profileBase(player.uid, "") : {}),
+        monedas: nonNegativeCounter(readField(userDocument, "monedas")) + rewards[index],
+        partidasCompletadas: nonNegativeCounter(readField(userDocument, "partidasCompletadas")) + 1,
+        victorias: nonNegativeCounter(readField(userDocument, "victorias")) + Number(result.winnerPlayerNumber === player.playerNumber),
+        derrotas: nonNegativeCounter(readField(userDocument, "derrotas")) + Number(result.winnerPlayerNumber !== null && result.winnerPlayerNumber !== player.playerNumber),
+        empates: nonNegativeCounter(readField(userDocument, "empates")) + Number(result.winnerPlayerNumber === null)
+      };
+      balances.push(fields.monedas);
+      writes.push(updateWrite(userNames[index], fields, userDocument
+        ? { updateTime: userDocument.updateTime }
+        : { exists: false, serverTimestamps: ["creadoEn"] }));
+    }
+
+    writes.push(updateWrite(ledgerName, {
+      matchId: match.matchId,
+      jugador1Uid: players[0].uid,
+      jugador2Uid: players[1].uid,
+      ganadorNumero: result.winnerPlayerNumber,
+      motivo: result.reason,
+      duracionMs: result.elapsedMatchMs,
+      jugador1Recompensa: rewards[0],
+      jugador2Recompensa: rewards[1],
+      jugador1Saldo: balances[0],
+      jugador2Saldo: balances[1]
+    }, { exists: false, serverTimestamps: ["creadoEn"] }));
+    await commit(env, token, transaction, writes);
+    return {
+      status: "SETTLED",
+      awardsByUid: { [players[0].uid]: rewards[0], [players[1].uid]: rewards[1] },
+      balancesByUid: { [players[0].uid]: balances[0], [players[1].uid]: balances[1] }
+    };
+  } catch (error) {
+    await rollback(env, token, transaction);
+    throw error;
+  }
+}
+
+/**
+ * Atomically updates both profiles and creates a per-match ledger document.
+ * The ledger makes retries safe if the Worker is interrupted after Firestore
+ * commits but before the Durable Object stores its settlement state.
+ */
+export async function settleMatchProfiles(env, match) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await settleMatchProfilesOnce(env, match);
+    } catch (error) {
+      if (!(error instanceof ProfileApiError) || error.code !== "TRANSACTION_RETRY" || attempt >= 2) throw error;
       await new Promise((resolve) => setTimeout(resolve, 30 * (attempt + 1)));
     }
   }
