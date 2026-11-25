@@ -526,6 +526,7 @@ class MatchmakingRepository {
                 private var pendingMap: MatchMap? = null
                 private var gameStartReceived = false
                 private var activeBalance: MatchBalanceConfig? = null
+                private var failureAlreadyReported = false
                 override fun onOpen(webSocket: WebSocket, response: Response) {
                     webSocket.send(JSONObject().put("type", "auth").put("token", token).toString())
                 }
@@ -626,15 +627,26 @@ class MatchmakingRepository {
                         ))
                         "match.cancelled" -> onEvent(MatchmakingEvent.Cancelled(json.optString("reason"), json.optBoolean("requeued")))
                         "error" -> if (json.optString("code") != "CANCEL_NOT_ALLOWED") {
-                            onEvent(MatchmakingEvent.Failure(json.optString("message", "No se pudo buscar partida.")))
+                            failureAlreadyReported = true
+                            onEvent(MatchmakingEvent.Failure(
+                                json.optString("message", "No se pudo buscar partida.") +
+                                    " (${json.optString("code", "SERVER_ERROR")})"
+                            ))
                         }
                     }
                 }
                 override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                    onEvent(MatchmakingEvent.Failure("Se perdió la conexión con el servidor. Reintenta."))
+                    if (failureAlreadyReported) return
+                    failureAlreadyReported = true
+                    val detail = response?.let { "HTTP ${it.code}" } ?: t.cause?.javaClass?.simpleName
+                        ?: t.javaClass.simpleName
+                    onEvent(MatchmakingEvent.Failure("No se pudo abrir la conexión con el servidor ($detail). Reintenta."))
                 }
                 override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                    if (code != 1000) onEvent(MatchmakingEvent.Failure("La conexión de emparejamiento se cerró. Reintenta."))
+                    if (!failureAlreadyReported && code != 1000) {
+                        failureAlreadyReported = true
+                        onEvent(MatchmakingEvent.Failure("El servidor cerró la conexión de emparejamiento ($code). Reintenta."))
+                    }
                 }
             })
         }.addOnFailureListener {

@@ -27,7 +27,10 @@ function makeContext(sockets) {
     context: {
       storage: {
         get: async (key) => storage.get(key),
-        put: async (key, value) => { storage.set(key, value); }
+        put: async (key, value) => { storage.set(key, value); },
+        delete: async (key) => storage.delete(key),
+        deleteAlarm: async () => storage.delete("alarm"),
+        setAlarm: async (at) => storage.set("alarm", at)
       },
       getWebSockets: () => sockets
     }
@@ -103,6 +106,101 @@ test("a third player waits behind the active pair and can cancel without affecti
   assert.ok(third.messages.some((message) => message.type === "queue.cancelled"));
   assert.ok(first.messages.some((message) => message.type === "match.found"));
   assert.ok(second.messages.some((message) => message.type === "match.found"));
+});
+
+test("a countdown is sent only to the two players in that match", async () => {
+  const first = makeSocket("uid-one");
+  const second = makeSocket("uid-two");
+  const third = makeSocket("uid-three");
+  const { context } = makeContext([first.socket, second.socket, third.socket]);
+  const probe = new WebSocketProbe(context, {});
+
+  await probe.joinQueue(first.socket, first.attachment, { requestId: "first" });
+  await probe.joinQueue(second.socket, second.attachment, { requestId: "second" });
+  await probe.joinQueue(third.socket, third.attachment, { requestId: "third" });
+  await probe.markLoaded(first.socket, first.attachment, {});
+  await probe.markLoaded(second.socket, second.attachment, {});
+
+  assert.ok(first.messages.some(message => message.type === "match.countdown"));
+  assert.ok(second.messages.some(message => message.type === "match.countdown"));
+  assert.equal(third.messages.some(message => message.type === "match.countdown"), false);
+  assert.equal(third.messages.some(message => message.type === "game_start"), false);
+});
+
+test("a pre-start disconnect requeues its opponent before existing waiters", async () => {
+  const players = [1, 2, 3].map(number => makeSocket(`uid-${number}`));
+  const { context, storage } = makeContext(players.map(player => player.socket));
+  const probe = new WebSocketProbe(context, {});
+
+  for (const [index, player] of players.entries()) {
+    await probe.joinQueue(player.socket, player.attachment, { requestId: `join-${index}` });
+  }
+  players[0].socket.readyState = WebSocket.CLOSED;
+  await probe.webSocketClose(players[0].socket);
+
+  const replacementMatch = storage.get("match");
+  assert.deepEqual(replacementMatch.players.map(player => player.uid), ["uid-2", "uid-3"]);
+  assert.deepEqual(storage.get("queue"), []);
+  assert.ok(players[1].messages.some(message => message.type === "match.cancelled" && message.requeued));
+});
+
+test("a stale pre-combat match cannot block the lobby after a Worker upgrade", async () => {
+  const first = makeSocket("uid-one");
+  const second = makeSocket("uid-two");
+  const { context, storage } = makeContext([first.socket, second.socket]);
+  storage.set("match", { matchId: "legacy", phase: "IN_MATCH", players: [] });
+  const probe = new WebSocketProbe(context, {});
+
+  await probe.joinQueue(first.socket, first.attachment, { requestId: "first" });
+  await probe.joinQueue(second.socket, second.attachment, { requestId: "second" });
+
+  assert.equal(storage.get("match").phase, "LOADING");
+  assert.ok(first.messages.some(message => message.type === "match.found"));
+  assert.ok(second.messages.some(message => message.type === "match.found"));
+});
+
+test("a loading match with a disconnected player requeues its live opponent first", async () => {
+  const survivor = makeSocket("uid-one");
+  const waitingOne = makeSocket("uid-three");
+  const waitingTwo = makeSocket("uid-four");
+  survivor.socket.serializeAttachment({ ...survivor.attachment, matchId: "orphaned", playerNumber: 1, queueSequence: null });
+  const { context, storage } = makeContext([survivor.socket, waitingOne.socket, waitingTwo.socket]);
+  storage.set("match", {
+    matchId: "orphaned", phase: "LOADING", players: [
+      { uid: "uid-one", sequence: 1, playerNumber: 1, loaded: true },
+      { uid: "uid-two", sequence: 2, playerNumber: 2, loaded: false }
+    ]
+  });
+  storage.set("queue", [{ uid: "uid-three", sequence: 3 }, { uid: "uid-four", sequence: 4 }]);
+  const probe = new WebSocketProbe(context, {});
+
+  await probe.pairQueue(storage.get("queue"));
+
+  assert.deepEqual(storage.get("match").players.map(player => player.uid), ["uid-one", "uid-three"]);
+  assert.deepEqual(storage.get("queue"), [{ uid: "uid-four", sequence: 4 }]);
+  assert.ok(survivor.messages.some(message => message.type === "match.cancelled" && message.requeued));
+});
+
+test("players already waiting are paired after the active match ends", async () => {
+  const players = [1, 2, 3, 4].map(number => makeSocket(`uid-${number}`));
+  const { context, storage } = makeContext(players.map(player => player.socket));
+  const probe = new WebSocketProbe(context, {});
+
+  for (const [index, player] of players.entries()) {
+    await probe.joinQueue(player.socket, player.attachment, { requestId: `join-${index}` });
+  }
+  await probe.markLoaded(players[0].socket, players[0].attachment, {});
+  await probe.markLoaded(players[1].socket, players[1].attachment, {});
+  await probe.alarm();
+  await probe.alarm();
+  await probe.alarm();
+  await probe.surrenderMatch(players[0].socket, players[0].attachment, { actionId: "surrender" });
+
+  assert.equal(storage.get("match").phase, "LOADING");
+  assert.deepEqual(storage.get("match").players.map(player => player.uid), ["uid-3", "uid-4"]);
+  assert.deepEqual(storage.get("queue"), []);
+  assert.ok(players[0].messages.some(message => message.type === "match.result"));
+  assert.ok(players[1].messages.some(message => message.type === "match.result"));
 });
 
 test("loading timeout requeues the player who loaded at their original sequence", async () => {

@@ -146,3 +146,19 @@ Responder a la revisión visual de la arena: muralla continua de borde a borde, 
 - Instalar la APK en dos dispositivos con UIDs distintos y probar una partida completa; el despliegue se verificó mediante `/health`.
 - La reconexión tras corte, persistencia del resultado/recompensa del perfil y prueba de reinicio de Durable Object siguen pendientes.
 - Aprendizaje personal: pendiente de que la usuaria lo redacte o confirme.
+
+## 25/11/2026 — Emparejamiento detenido en posición 2
+
+### Objetivo y hallazgos
+- Resolver la captura en que la app mostraba posición 2 y no encontraba rival. La usuaria confirmó que dos dispositivos seguían en «Conectando» y luego fallaban; una segunda captura mostró que sí llegaban a la cola.
+- La comprobación desde el entorno confirmó que la ruta `/ws` acepta el handshake público y que la APK apunta al mismo host Cloudflare y al mismo Firebase project ID que el Worker. La comprobación de handshake usó una credencial falsa y solo valida transporte, no identidad.
+- La revisión del flujo encontró que el Worker no volvía a llamar a `pairQueue` con un Durable Object que guardaba un estado viejo de partida, y que no aislaba `match.countdown` por partida. También podía perder el orden de espera al cerrarse un socket durante la carga.
+
+### Cambios y pruebas reales
+- El Worker ahora intenta emparejar si ya hay dos entradas, limpia registros antiguos de partidas sin simulación, recupera al rival conectado durante una cancelación previa al inicio y conserva a los que esperaban detrás. Cuenta atrás e inicio se envían solo a la pareja correspondiente; el emparejamiento continúa tras acabar una partida.
+- Android mantiene el primer rechazo del servidor (por ejemplo, cuenta repetida o token inválido) en vez de reemplazarlo con un error genérico de cierre y muestra el código HTTP o tipo de excepción cuando corresponda.
+- `npm test`: 58/58 pasaron. `node --test matchmaking.test.mjs`: 10/10 pasaron después del último ajuste. `:app:testDebugUnitTest` y `:app:assembleDebug` terminaron con `BUILD SUCCESSFUL`.
+- Aún no se ha publicado esta corrección ni se ha repetido la partida real entre dos cuentas. No atribuir con certeza la sala guardada concreta de producción sin observar su estado; el arreglo cubre el bloqueo que el código permitía y es coherente con la captura.
+
+### Pendiente
+- Publicar desde `main`, comprobar que `/health` informa la nueva `matchmakingVersion` y volver a buscar con las dos cuentas. Si falla, el mensaje ahora conservará el código recibido para seguir el diagnóstico.

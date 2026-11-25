@@ -77,6 +77,7 @@ test("health publishes the active match balance version", async () => {
   const body = await response.json();
   assert.equal(body.status, "ok");
   assert.equal(body.matchBalanceVersion, MATCH_BALANCE.version);
+  assert.equal(body.matchmakingVersion, "lifecycle-2026-11-25.1");
 });
 
 async function assertBuildRejectedWithoutChangingGame(harness, reason, values = {}) {
@@ -117,14 +118,21 @@ test("game_start sends the complete authoritative map to both players", async ()
     matchId: "match-for-test",
     phase: "COUNTDOWN",
     countdown: 1,
-    players: [],
+    players: [
+      { uid: "uid-one", playerNumber: 1 },
+      { uid: "uid-two", playerNumber: 2 }
+    ],
     map
   }]]);
   const messages = [[], []];
-  const sockets = messages.map((sent) => ({
-    readyState: WebSocket.OPEN,
-    send: (value) => sent.push(JSON.parse(value))
-  }));
+  const sockets = messages.map((sent, index) => {
+    const attachment = { uid: index === 0 ? "uid-one" : "uid-two", matchId: "match-for-test", playerNumber: index + 1 };
+    return {
+      readyState: WebSocket.OPEN,
+      deserializeAttachment: () => attachment,
+      send: (value) => sent.push(JSON.parse(value))
+    };
+  });
   const context = {
     storage: {
       get: async (key) => stored.get(key),
@@ -211,7 +219,7 @@ test("game_start sends the balance version and the confirmed initial economy", a
   }]]);
   const messages = [[], []];
   const sockets = ["uid-one", "uid-two"].map((uid, index) => {
-    let attachment = { uid, playerNumber: index + 1 };
+    let attachment = { uid, matchId: "economy-match", playerNumber: index + 1 };
     return {
       readyState: WebSocket.OPEN,
       send: (value) => messages[index].push(JSON.parse(value)),

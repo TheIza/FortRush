@@ -1,6 +1,6 @@
 # Progreso de FortRush
 
-Actualizado: 24/11/2026
+Actualizado: 25/11/2026
 
 ## Repositorio y recuperación
 
@@ -84,3 +84,11 @@ El punto 10–20 del plan tiene una primera implementación autoritativa en el W
 ## Siguiente paso
 
 Siguiente paso de beta: instalar la APK en dos dispositivos con dos cuentas distintas, iniciar emparejamiento, cargar la partida y comprobar despliegue de tropas, construcción/venta de torres, victoria/derrota y muerte súbita. La reconexión tras cortes y la recuperación tras reinicio siguen pendientes; no prometer continuidad ante esos fallos.
+
+## Incidencia de emparejamiento — 25/11/2026
+
+- La captura nueva muestra a la usuaria en la posición 2 de la cola, sin recibir partida. El perfil Android y el Worker usan el mismo proyecto Firebase y la ruta pública WebSocket acepta el protocolo desde una comprobación externa; el intento de prueba usó un token deliberadamente inválido, así que no valida la autenticación de una cuenta real.
+- Revisión del código encontró una causa compatible con la sala atascada: la cola solo intentaba emparejar si no había una partida guardada. Un registro antiguo `IN_MATCH` de antes de la simulación, sin objeto de juego, podía quedar guardado y bloquear todas las parejas. También se detectó que la cuenta atrás se difundía a todos los sockets del Durable Object y que la desconexión durante la preparación podía borrar a jugadores que ya estaban esperando.
+- Corrección local: reintentar el emparejamiento con colas de dos o más; retirar estados de partida antiguos irrecuperables; recuperar al jugador conectado cuando su rival desaparece durante carga/cuenta atrás y conservar el orden de la cola; enviar cuenta atrás solo a los dos sockets de esa partida; iniciar la siguiente pareja cuando termina la actual. La app conserva el error de autenticación/servidor recibido en vez de sustituirlo por un mensaje genérico de cierre.
+- Pruebas del Worker: `npm test`, 58/58; pruebas dirigidas de cola y mapa, 25/25 y 10/10. Android: `:app:testDebugUnitTest` y `:app:assembleDebug` terminaron correctamente. La APK contiene el mensaje diagnóstico y se encuentra en la salida debug.
+- El cambio de Worker aún debe publicarse y verificarse mediante `/health`. La partida con dos cuentas reales todavía no se ha podido comprobar; no se afirma que la incidencia esté resuelta en móviles hasta esa prueba.

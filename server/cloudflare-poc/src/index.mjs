@@ -20,6 +20,7 @@ import {
 const FIREBASE_JWKS = createRemoteJWKSet(
   new URL("https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com")
 );
+const MATCHMAKING_VERSION = "lifecycle-2026-11-25.1";
 
 async function verifyFirebaseIdentity(token, projectId) {
   const { payload } = await jwtVerify(token, FIREBASE_JWKS, {
@@ -42,6 +43,7 @@ export default {
         service: "fortrush-cloudflare",
         profileApiConfigured: Boolean(env.FIREBASE_SERVICE_ACCOUNT_JSON),
         mapGeneratorVersion: "v2",
+        matchmakingVersion: MATCHMAKING_VERSION,
         matchBalanceVersion: MATCH_BALANCE.version
       });
     }
@@ -81,13 +83,21 @@ export default {
     if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
       return new Response("WebSocket upgrade required", { status: 426 });
     }
+    console.log("matchmaking", { event: "websocket-upgrade" });
     const roomId = env.TEST_ROOM.idFromName("fort-rush-matchmaking-probe");
     return env.TEST_ROOM.get(roomId).fetch(request);
   }
 };
 
 function send(socket, type, data = {}) {
-  if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type, ...data }));
+  if (socket?.readyState !== WebSocket.OPEN) return false;
+  try {
+    socket.send(JSON.stringify({ type, ...data }));
+    return true;
+  } catch {
+    console.warn("matchmaking", { event: "send-failed", messageType: type });
+    return false;
+  }
 }
 
 function economySnapshot(match, player, nowMs) {
@@ -197,15 +207,19 @@ export class WebSocketProbe {
     }
     try {
       const { uid } = await this.verifyIdentity(payload.token, this.env.FIREBASE_PROJECT_ID);
-      const duplicate = this.ctx.getWebSockets().some((other) => other !== socket && other.deserializeAttachment()?.uid === uid);
+      const duplicate = this.ctx.getWebSockets().some((other) => other !== socket &&
+        other.readyState === WebSocket.OPEN && other.deserializeAttachment()?.uid === uid);
       if (duplicate) {
+        console.warn("matchmaking", { event: "duplicate-account" });
         send(socket, "error", { code: "ALREADY_CONNECTED", message: "Esta cuenta ya está conectada a la prueba." });
         socket.close(1008, "Duplicate account");
         return;
       }
       socket.serializeAttachment({ ...attachment, uid });
+      console.log("matchmaking", { event: "authenticated" });
       send(socket, "auth.ok");
-    } catch {
+    } catch (error) {
+      console.error("matchmaking", { event: "authentication-rejected", name: error?.name ?? "Error" });
       send(socket, "error", { code: "AUTH_INVALID", message: "No se pudo validar tu sesión de Firebase." });
       socket.close(1008, "Invalid Firebase token");
     }
@@ -224,6 +238,7 @@ export class WebSocketProbe {
     const existing = queue.find((entry) => entry.uid === attachment.uid);
     if (existing) {
       send(socket, "queue.waiting", { requestId: payload.requestId, position: queue.indexOf(existing) + 1 });
+      if (queue.length >= 2) await this.pairQueue(queue);
       return;
     }
     const sequence = (await this.ctx.storage.get("queueSequence") ?? 0) + 1;
@@ -233,16 +248,56 @@ export class WebSocketProbe {
     await this.ctx.storage.put("queue", queue);
     socket.serializeAttachment({ ...attachment, queueSequence: sequence });
     send(socket, "queue.waiting", { requestId: payload.requestId, position: queue.length });
-    if (queue.length >= 2 && !(await this.ctx.storage.get("match"))) await this.pairQueue(queue);
+    console.log("matchmaking", { event: "queue-joined", queuedPlayers: queue.length });
+    if (queue.length >= 2) await this.pairQueue(queue);
   }
 
   async pairQueue(queue) {
     const activeMatch = await this.ctx.storage.get("match");
-    if (activeMatch && activeMatch.phase !== "FINISHED") return;
+    if (activeMatch && !["FINISHED", "CANCELLED"].includes(activeMatch.phase)) {
+      if ((["IN_MATCH", "SUDDEN_DEATH"].includes(activeMatch.phase)) && !activeMatch.game) {
+        activeMatch.phase = "CANCELLED";
+        activeMatch.cancellationReason = "SERVER_STATE_LOST";
+        await this.ctx.storage.put("match", activeMatch);
+        for (const socket of this.ctx.getWebSockets()) {
+          const attachment = socket.deserializeAttachment() ?? {};
+          if (attachment.matchId !== activeMatch.matchId) continue;
+          socket.serializeAttachment({ ...attachment, matchId: null, playerNumber: null, queueSequence: null });
+          send(socket, "match.cancelled", { reason: "SERVER_STATE_LOST", requeued: false });
+        }
+        await this.ctx.storage.deleteAlarm?.();
+      } else if (["LOADING", "COUNTDOWN"].includes(activeMatch.phase)) {
+        const liveSockets = new Map(this.ctx.getWebSockets().filter(socket => socket.readyState === WebSocket.OPEN)
+          .map(socket => [socket.deserializeAttachment()?.uid, socket]));
+        const survivors = activeMatch.players.filter(player => liveSockets.has(player.uid));
+        if (survivors.length === activeMatch.players.length) return;
+        queue = await this.ctx.storage.get("queue") ?? queue;
+        for (const survivor of survivors) {
+          const survivorSocket = liveSockets.get(survivor.uid);
+          survivorSocket.serializeAttachment({ ...survivorSocket.deserializeAttachment(), matchId: null,
+            playerNumber: null, queueSequence: survivor.sequence });
+          queue = [...queue.filter(entry => entry.uid !== survivor.uid), { uid: survivor.uid, sequence: survivor.sequence }];
+          send(survivorSocket, "match.cancelled", { reason: "OPPONENT_DISCONNECTED", requeued: true });
+        }
+        queue.sort((a, b) => a.sequence - b.sequence);
+        await this.ctx.storage.put("queue", queue);
+        await this.ctx.storage.put("match", null);
+        await this.ctx.storage.deleteAlarm?.();
+        this.notifyQueue(queue);
+      } else {
+        console.warn("matchmaking", {
+          event: "queue-held-by-active-match",
+          phase: activeMatch.phase,
+          queuedPlayers: queue.length
+        });
+        return;
+      }
+    }
     const orderedQueue = [...queue].sort((a, b) => a.sequence - b.sequence);
     const selected = orderedQueue.slice(0, 2);
     if (selected.length < 2) return;
-    const socketsByUid = new Map(this.ctx.getWebSockets().map((socket) => [socket.deserializeAttachment()?.uid, socket]));
+    const socketsByUid = new Map(this.ctx.getWebSockets().filter(socket => socket.readyState === WebSocket.OPEN)
+      .map((socket) => [socket.deserializeAttachment()?.uid, socket]));
     const players = selected.map((entry) => ({ ...entry, socket: socketsByUid.get(entry.uid) }));
     if (players.some((player) => !player.socket)) {
       const activeUids = new Set(socketsByUid.keys());
@@ -328,8 +383,22 @@ export class WebSocketProbe {
     match.phase = "COUNTDOWN";
     match.countdown = 3;
     await this.ctx.storage.put("match", match);
-    this.broadcast("match.countdown", { seconds: match.countdown });
+    this.broadcast(match, "match.countdown", { seconds: match.countdown });
     await this.ctx.storage.setAlarm(Date.now() + 1_000);
+  }
+
+  async publishMatchState(match, nowMs = Date.now()) {
+    publishGameState(this.ctx, match, nowMs);
+    if (match.phase !== "FINISHED") return;
+    await this.ctx.storage.deleteAlarm?.();
+    for (const socket of this.ctx.getWebSockets()) {
+      const attachment = socket.deserializeAttachment() ?? {};
+      if (attachment.matchId === match.matchId) {
+        socket.serializeAttachment({ ...attachment, matchId: null, playerNumber: null, queueSequence: null });
+      }
+    }
+    const waiting = await this.ctx.storage.get("queue") ?? [];
+    if (waiting.length >= 2) await this.pairQueue(waiting);
   }
 
   async alarm() {
@@ -342,7 +411,8 @@ export class WebSocketProbe {
       }
       const loadedPlayers = match.players.filter((player) => player.loaded);
       const requeued = loadedPlayers.length === 1 ? loadedPlayers[0] : null;
-      const socketsByUid = new Map(this.ctx.getWebSockets().map((socket) => [socket.deserializeAttachment()?.uid, socket]));
+      const socketsByUid = new Map(this.ctx.getWebSockets().filter(socket => socket.readyState === WebSocket.OPEN)
+        .map((socket) => [socket.deserializeAttachment()?.uid, socket]));
       let queue = await this.ctx.storage.get("queue") ?? [];
       for (const player of match.players) {
         const playerSocket = socketsByUid.get(player.uid);
@@ -366,8 +436,11 @@ export class WebSocketProbe {
     if (["IN_MATCH", "SUDDEN_DEATH"].includes(match.phase)) {
       advanceCombat(match, Date.now());
       await this.ctx.storage.put("match", match);
-      publishGameState(this.ctx, match);
-      if (match.phase === "FINISHED") await this.ctx.storage.deleteAlarm?.();
+      await this.publishMatchState(match);
+      if (match.phase === "FINISHED") {
+        const waiting = await this.ctx.storage.get("queue") ?? [];
+        if (waiting.length >= 2) await this.pairQueue(waiting);
+      }
       else await this.ctx.storage.setAlarm?.(Date.now() + 1_000);
       return;
     }
@@ -375,14 +448,15 @@ export class WebSocketProbe {
     if (match.countdown > 1) {
       match.countdown -= 1;
       await this.ctx.storage.put("match", match);
-      this.broadcast("match.countdown", { seconds: match.countdown });
+      this.broadcast(match, "match.countdown", { seconds: match.countdown });
       await this.ctx.storage.setAlarm(Date.now() + 1_000);
       return;
     }
     match.balance ??= cloneMatchBalance();
     initializeCombatState(match, Date.now());
     await this.ctx.storage.put("match", match);
-    this.ctx.getWebSockets().forEach((socket) => {
+    this.ctx.getWebSockets().filter(socket => socket.readyState === WebSocket.OPEN &&
+      socket.deserializeAttachment()?.matchId === match.matchId).forEach((socket) => {
       const attachment = socket.deserializeAttachment?.() ?? {};
       const player = match.players.find((entry) => entry.uid === attachment.uid);
       send(socket, "game_start", {
@@ -414,8 +488,7 @@ export class WebSocketProbe {
     if (!result.ok) {
       await this.ctx.storage.put("match", match);
       send(socket, "action_rejected", { actionId, reason: result.reason });
-      publishGameState(this.ctx, match, nowMs);
-      if (match.phase === "FINISHED") await this.ctx.storage.deleteAlarm?.();
+      await this.publishMatchState(match, nowMs);
       return;
     }
     await this.ctx.storage.put("match", match);
@@ -429,7 +502,7 @@ export class WebSocketProbe {
         economy: economySnapshot(match, recipient, nowMs)
       });
     }
-    publishGameState(this.ctx, match, nowMs);
+    await this.publishMatchState(match, nowMs);
   }
 
   async buildTower(socket, attachment, payload) {
@@ -455,7 +528,7 @@ export class WebSocketProbe {
     if (match.phase !== "IN_MATCH") {
       await this.ctx.storage.put("match", match);
       rejectBuild(socket, actionId, slotId, "INVALID_STATE");
-      publishGameState(this.ctx, match);
+      await this.publishMatchState(match);
       return;
     }
 
@@ -524,7 +597,7 @@ export class WebSocketProbe {
         economy: economySnapshot(match, recipient, nowMs)
       });
     }
-    publishGameState(this.ctx, match, nowMs);
+    await this.publishMatchState(match, nowMs);
   }
 
   async sellTower(socket, attachment, payload) {
@@ -544,7 +617,7 @@ export class WebSocketProbe {
     if (!result.ok) {
       await this.ctx.storage.put("match", match);
       send(socket, "action_rejected", { actionId, slotId, reason: result.reason });
-      publishGameState(this.ctx, match, nowMs);
+      await this.publishMatchState(match, nowMs);
       return;
     }
     await this.ctx.storage.put("match", match);
@@ -558,7 +631,7 @@ export class WebSocketProbe {
         economy: economySnapshot(match, recipient, nowMs)
       });
     }
-    publishGameState(this.ctx, match, nowMs);
+    await this.publishMatchState(match, nowMs);
   }
 
   async surrenderMatch(socket, attachment, payload) {
@@ -576,43 +649,53 @@ export class WebSocketProbe {
     if (!result.ok) {
       await this.ctx.storage.put("match", match);
       send(socket, "action_rejected", { actionId: payload.actionId ?? "", reason: result.reason });
-      publishGameState(this.ctx, match, nowMs);
+      await this.publishMatchState(match, nowMs);
       return;
     }
     await this.ctx.storage.put("match", match);
-    publishGameState(this.ctx, match, nowMs);
-    await this.ctx.storage.deleteAlarm?.();
+    await this.publishMatchState(match, nowMs);
   }
 
   async webSocketClose(socket) {
     const attachment = socket.deserializeAttachment() ?? {};
-    if (attachment.queueSequence !== null && attachment.queueSequence !== undefined) {
-      const queue = await this.ctx.storage.get("queue") ?? [];
-      const remaining = queue.filter((entry) => entry.uid !== attachment.uid);
-      await this.ctx.storage.put("queue", remaining);
-      this.notifyQueue(remaining);
-    }
-    if (!attachment.matchId) return;
+    const otherSockets = this.ctx.getWebSockets().filter(candidate => candidate !== socket && candidate.readyState === WebSocket.OPEN);
+    if (otherSockets.some(candidate => candidate.deserializeAttachment()?.uid === attachment.uid)) return;
+    let queue = await this.ctx.storage.get("queue") ?? [];
+    queue = queue.filter(entry => entry.uid !== attachment.uid);
     const match = await this.ctx.storage.get("match");
-    if (!match || match.matchId !== attachment.matchId || !["LOADING", "COUNTDOWN"].includes(match.phase)) return;
-    const survivor = match.players.find((entry) => entry.uid !== attachment.uid);
-    const survivorSocket = this.ctx.getWebSockets().find((candidate) => candidate.deserializeAttachment()?.uid === survivor?.uid);
-    await this.ctx.storage.delete("match");
-    await this.ctx.storage.deleteAlarm();
-    if (survivor && survivorSocket) {
-      survivorSocket.serializeAttachment({ ...survivorSocket.deserializeAttachment(), matchId: null, playerNumber: null, queueSequence: survivor.sequence });
-      await this.ctx.storage.put("queue", [{ uid: survivor.uid, sequence: survivor.sequence }]);
-      send(survivorSocket, "match.cancelled", { reason: "OPPONENT_DISCONNECTED", requeued: true });
-      send(survivorSocket, "queue.waiting", { position: 1 });
+    if (match?.matchId === attachment.matchId && ["LOADING", "COUNTDOWN"].includes(match.phase)) {
+      const survivor = match.players.find((entry) => entry.uid !== attachment.uid);
+      const survivorSocket = otherSockets.find((candidate) => candidate.deserializeAttachment()?.uid === survivor?.uid);
+      await this.ctx.storage.delete("match");
+      await this.ctx.storage.deleteAlarm?.();
+      if (survivor && survivorSocket) {
+        survivorSocket.serializeAttachment({ ...survivorSocket.deserializeAttachment(), matchId: null,
+          playerNumber: null, queueSequence: survivor.sequence });
+        queue = [...queue.filter(entry => entry.uid !== survivor.uid), { uid: survivor.uid, sequence: survivor.sequence }]
+          .sort((a, b) => a.sequence - b.sequence);
+        await this.ctx.storage.put("queue", queue);
+        send(survivorSocket, "match.cancelled", { reason: "OPPONENT_DISCONNECTED", requeued: true });
+      }
     }
+    await this.ctx.storage.put("queue", queue);
+    this.notifyQueue(queue);
+    if (queue.length >= 2) await this.pairQueue(queue);
+  }
+
+  async webSocketError(socket) {
+    console.warn("matchmaking", { event: "socket-error" });
+    await this.webSocketClose(socket);
   }
 
   notifyQueue(queue) {
-    const sockets = new Map(this.ctx.getWebSockets().map((socket) => [socket.deserializeAttachment()?.uid, socket]));
+    const sockets = new Map(this.ctx.getWebSockets().filter(socket => socket.readyState === WebSocket.OPEN)
+      .map((socket) => [socket.deserializeAttachment()?.uid, socket]));
     queue.forEach((entry, index) => send(sockets.get(entry.uid), "queue.waiting", { position: index + 1 }));
   }
 
-  broadcast(type, data = {}) {
-    this.ctx.getWebSockets().forEach((socket) => send(socket, type, data));
+  broadcast(match, type, data = {}) {
+    this.ctx.getWebSockets().filter(socket => socket.readyState === WebSocket.OPEN &&
+      socket.deserializeAttachment()?.matchId === match.matchId)
+      .forEach((socket) => send(socket, type, data));
   }
 }
