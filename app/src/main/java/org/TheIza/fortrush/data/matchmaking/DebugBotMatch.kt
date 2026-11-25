@@ -48,6 +48,7 @@ fun createDebugBotMap(): MatchMap {
     )
     val path = lowerPath + lowerPath.dropLast(1).asReversed().map(::rotateDebugPoint)
     val player1Slots = makeDebugSlots(lowerPath, path, gateY, random)
+    val pathCumulativeLengths = debugPathCumulativeLengths(path)
 
     return MatchMap(
         seed = "debug-${UUID.randomUUID()}",
@@ -63,7 +64,9 @@ fun createDebugBotMap(): MatchMap {
             MatchDecoration("tree", MatchPoint(0.98f, 0.05f), 0.9f),
             MatchDecoration("tree", MatchPoint(0.02f, 0.95f), 0.9f),
             MatchDecoration("tree", MatchPoint(0.98f, 0.95f), 0.8f)
-        )
+        ),
+        pathCumulativeLengths = pathCumulativeLengths,
+        pathTotalLength = pathCumulativeLengths.last()
     )
 }
 
@@ -193,6 +196,14 @@ private fun debugDistance(first: MatchPoint, second: MatchPoint): Float {
     val dx = first.x - second.x
     val dy = (first.y - second.y) * DEBUG_MAP_HEIGHT_PER_WIDTH
     return kotlin.math.sqrt(dx * dx + dy * dy)
+}
+
+private fun debugPathCumulativeLengths(path: List<MatchPoint>): List<Float> {
+    val cumulative = mutableListOf(0f)
+    for (index in 1 until path.size) {
+        cumulative += cumulative.last() + debugDistance(path[index - 1], path[index]) * 1_000f
+    }
+    return cumulative
 }
 
 private fun debugDistanceToPath(point: MatchPoint, path: List<MatchPoint>): Float =

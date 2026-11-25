@@ -182,3 +182,9 @@ Responder a la revisión visual de la arena: muralla continua de borde a borde, 
 - `wrangler deploy --dry-run` empaquetó correctamente el Worker y terminó sin desplegarlo.
 - `:app:compileDebugKotlin --offline` había terminado con `BUILD SUCCESSFUL` antes del último ajuste visual de 6 a 9 dp. La compilación posterior se detuvo antes de compilar por `AccessDeniedException` en `.gradle/9.6.0/fileHashes.lock`; no da un resultado sobre Kotlin.
 - `git diff --check` pasó. No se ejecutaron tests automáticos ni una prueba multijugador real. Los cambios siguen locales en `main`; el Worker publicado sigue en la versión anterior hasta ejecutar las pruebas y desplegar.
+# 25/11/2026 — revisión del despliegue de tropas
+
+- Petición: revisar por qué al elegir una tropa y tocar el camino no aparecía, resolverlo sin tocar lo demás y separar un poco más las barras de vida del borde.
+- Revisión de código: el modo bot rechazaba el callback de despliegue y su mapa no incluía longitudes acumuladas; por eso el detector de camino no encontraba ninguna posición. La ruta online sí envía la acción al Worker.
+- Cambio: completar los datos de longitud del mapa local; en modo bot, cobrar el coste local y mostrar una formación visual estática; fuera de la zona verde, mostrar una indicación. La simulación online y sus valores no cambian. El medidor de vida reserva 4 dp inferiores.
+- Comprobación realizada: Worker 58/58; Android `testDebugUnitTest` y `assembleDebug` exitosos; 5/5 pruebas del destino de tropas. Queda pendiente la revisión visual manual con la APK y probar el despliegue online desde dos cuentas.

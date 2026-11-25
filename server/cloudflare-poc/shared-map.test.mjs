@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createSharedMap } from "./src/shared-map.mjs";
-import worker, { WebSocketProbe } from "./src/index.mjs";
+import worker, { MATCHMAKING_VERSION, WebSocketProbe } from "./src/index.mjs";
 import { MAP_ARCHETYPES } from "./src/map-v2.mjs";
 import { cloneMatchBalance, MATCH_BALANCE } from "./src/match-balance.mjs";
 
@@ -77,7 +77,7 @@ test("health publishes the active match balance version", async () => {
   const body = await response.json();
   assert.equal(body.status, "ok");
   assert.equal(body.matchBalanceVersion, MATCH_BALANCE.version);
-  assert.equal(body.matchmakingVersion, "lifecycle-2026-11-25.1");
+  assert.equal(body.matchmakingVersion, MATCHMAKING_VERSION);
 });
 
 async function assertBuildRejectedWithoutChangingGame(harness, reason, values = {}) {

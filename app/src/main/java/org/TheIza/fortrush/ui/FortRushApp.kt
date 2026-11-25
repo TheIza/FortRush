@@ -320,7 +320,33 @@ fun FortRushApp(userId: String, onSignOut: () -> Unit = {}) {
     }
 
     fun requestTroopDeploy(card: MatchTroopCard, position: Float): Boolean {
-        if (matchmakingStage != MatchmakingStage.STARTED || localBotDebug || gameState?.phase != "IN_MATCH") return false
+        if (matchmakingStage != MatchmakingStage.STARTED) return false
+        if (localBotDebug) {
+            val map = sharedMap ?: return false
+            val totalLength = map.pathTotalLength
+            val safeHalf = totalLength * 0.475f
+            val inOwnDeploymentZone = when (opponentNumber) {
+                1 -> position in 0f..safeHalf
+                2 -> position in (totalLength - safeHalf)..totalLength
+                else -> false
+            }
+            if (!inOwnDeploymentZone) return false
+
+            val economy = matchEconomy ?: return false
+            val now = System.currentTimeMillis()
+            val elapsedSinceSnapshot = (now - economy.serverTimeMs).coerceAtLeast(0L)
+            val availableCoins = economy.coinsAfterElapsed(elapsedSinceSnapshot)
+            val troopCost = economy.balance?.troopCost(card) ?: card.cost
+            if (availableCoins < troopCost) return false
+            matchEconomy = economy.copy(
+                serverTimeMs = now,
+                coinsSpent = economy.coinsSpent + troopCost,
+                coinsAtServerMs = (availableCoins - troopCost).coerceAtLeast(0)
+            )
+            towerBuildError = null
+            return true
+        }
+        if (gameState?.phase != "IN_MATCH") return false
         val actionId = matchmakingConnection?.deployTroop(card, position) ?: return false
         pendingTroopActions = pendingTroopActions + (actionId to card.wireId)
         towerBuildError = null

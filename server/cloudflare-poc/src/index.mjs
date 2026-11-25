@@ -20,7 +20,7 @@ import {
 const FIREBASE_JWKS = createRemoteJWKSet(
   new URL("https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com")
 );
-const MATCHMAKING_VERSION = "profile-rewards-2026-11-25.1";
+export const MATCHMAKING_VERSION = "profile-rewards-2026-11-25.1";
 const MATCH_STATE_INTERVAL_MS = 250;
 const PENDING_MATCH_REWARDS_KEY = "pendingMatchRewards";
 

@@ -105,6 +105,34 @@ private data class ArenaSlotVisual(
     val id: String
 )
 
+private data class ArenaDebugTroopPreview(
+    val id: String,
+    val card: String,
+    val ownerPlayerNumber: Int,
+    val pathDistance: Float
+)
+
+/** Local visual-only formation; it does not change the authoritative combat simulation. */
+internal fun debugTroopPreviewPositions(
+    card: MatchTroopCard,
+    position: Float,
+    totalLength: Float,
+    playerNumber: Int
+): List<Float> {
+    if (!position.isFinite() || !totalLength.isFinite() || totalLength <= 0f || playerNumber !in 1..2) return emptyList()
+    val safeHalf = totalLength * 0.475f
+    val minPosition = if (playerNumber == 1) 0f else totalLength - safeHalf
+    val maxPosition = if (playerNumber == 1) safeHalf else totalLength
+    if (position !in minPosition..maxPosition) return emptyList()
+
+    val count = if (card == MatchTroopCard.ESPADACHIN) 3 else 2
+    val visualSpacing = 24f
+    return List(count) { index ->
+        val offset = (index - (count - 1) / 2f) * visualSpacing
+        (position + offset).coerceIn(minPosition, maxPosition)
+    }
+}
+
 /**
  * Shared map geometry is server generated; this screen only scales, rotates, and draws it.
  */
@@ -135,6 +163,7 @@ fun BattleArenaScreen(
     var selectedSlotId by remember(map.seed, playerNumber) { mutableStateOf<String?>(null) }
     var selectedTowerCard by remember(map.seed, playerNumber) { mutableStateOf<MatchTowerCard?>(null) }
     var selectedTroopCard by remember(map.seed, playerNumber) { mutableStateOf<MatchTroopCard?>(null) }
+    var debugTroopPreviews by remember(map.seed, playerNumber) { mutableStateOf(emptyList<ArenaDebugTroopPreview>()) }
     var draggedTowerCard by remember(map.seed, playerNumber) { mutableStateOf<MatchTowerCard?>(null) }
     var dragPointerRoot by remember(map.seed, playerNumber) { mutableStateOf<Offset?>(null) }
     var dragTargetRoot by remember(map.seed, playerNumber) { mutableStateOf<Offset?>(null) }
@@ -364,6 +393,7 @@ fun BattleArenaScreen(
                 selectedTowerCard = selectedTowerCard,
                 draggedTowerCard = draggedTowerCard,
                 selectedTroopCard = selectedTroopCard,
+                debugTroopPreviews = debugTroopPreviews,
                 dragTargetSlotId = dragTargetSlotId,
                 dragTargetValid = dragTargetValid,
                 canBuild = isMatchActive,
@@ -392,12 +422,27 @@ fun BattleArenaScreen(
                     } else if (pendingTroopCards.contains(card.wireId)) {
                         localFeedback = "El servidor está confirmando ese despliegue."
                     } else if (isMatchActive && onDeployTroop(card, position)) {
+                        if (isDebugBotMode) {
+                            val positions = debugTroopPreviewPositions(card, position, map.pathTotalLength, playerNumber)
+                            val firstId = debugTroopPreviews.size
+                            debugTroopPreviews = debugTroopPreviews + positions.mapIndexed { index, pathDistance ->
+                                ArenaDebugTroopPreview(
+                                    id = "debug-${map.seed}-$firstId-$index",
+                                    card = card.wireId,
+                                    ownerPlayerNumber = playerNumber,
+                                    pathDistance = pathDistance
+                                )
+                            }
+                        }
                         selectedTroopCard = null
                         selectedTowerCard = null
-                        localFeedback = "Tropa enviada al camino…"
+                        localFeedback = if (isDebugBotMode) "Tropa colocada · vista de prueba, sin combate." else "Tropa enviada al camino…"
                     } else {
                         localFeedback = "No se pudo desplegar. Comprueba la fase y tus monedas."
                     }
+                },
+                onInvalidPathTouch = {
+                    if (selectedTroopCard != null) localFeedback = "Toca el tramo verde del camino, en tu mitad."
                 },
                 onPositioned = { arenaCoordinates = it },
                 modifier = Modifier
@@ -626,7 +671,7 @@ private fun ArenaLifeMeter(
 ) {
     val current = (health ?: maximum).coerceIn(0f, maximum)
     Column(
-        modifier.semantics {
+        modifier.padding(bottom = 4.dp).semantics {
             contentDescription = "$label ${current.toInt()} de ${maximum.toInt()} de vida"
         }
     ) {
@@ -1124,6 +1169,7 @@ private fun ArenaMapCanvas(
     selectedTowerCard: MatchTowerCard?,
     draggedTowerCard: MatchTowerCard?,
     selectedTroopCard: MatchTroopCard?,
+    debugTroopPreviews: List<ArenaDebugTroopPreview>,
     dragTargetSlotId: String?,
     dragTargetValid: Boolean,
     canBuild: Boolean,
@@ -1132,6 +1178,7 @@ private fun ArenaMapCanvas(
     cannonTowerRangeFraction: Float,
     onTapOwnSlot: (String) -> Unit,
     onTapPath: (Float) -> Unit,
+    onInvalidPathTouch: () -> Unit,
     onPositioned: (LayoutCoordinates) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -1172,6 +1219,7 @@ private fun ArenaMapCanvas(
 
     val currentOnTapOwnSlot by rememberUpdatedState(onTapOwnSlot)
     val currentOnTapPath by rememberUpdatedState(onTapPath)
+    val currentOnInvalidPathTouch by rememberUpdatedState(onInvalidPathTouch)
 
     Box(modifier) {
     Canvas(
@@ -1187,14 +1235,15 @@ private fun ArenaMapCanvas(
                 else {
                     val boardWidth = minOf(size.width.toFloat(), size.height * 9f / 16f)
                     val boardLeft = (size.width - boardWidth) / 2f
-                    pathStationForTouch(
+                    val station = pathStationForTouch(
                         map = map,
                         tap = tap,
                         playerNumber = playerNumber,
                         boardLeft = boardLeft,
                         boardWidth = boardWidth,
                         boardHeight = size.height.toFloat()
-                    )?.let(currentOnTapPath)
+                    )
+                    if (station != null) currentOnTapPath(station) else currentOnInvalidPathTouch()
                 }
             }
         }
@@ -1439,6 +1488,26 @@ private fun ArenaMapCanvas(
             drawCircle(Color(0xFF1D2733), boardWidth * 0.048f, center, style = Stroke(width = 1.5.dp.toPx()))
             val sprite = if (troop.card == MatchTroopCard.ESCUDERO.wireId) escuderoSprite else swordsmanSprite
             drawTroopSprite(sprite, presentedTroop, center, boardWidth * 0.105f)
+        }
+        debugTroopPreviews.forEach { preview ->
+            val point = pointAtMapDistance(map, preview.pathDistance) ?: return@forEach
+            val center = oriented(point)
+            val health = if (preview.card == MatchTroopCard.ESCUDERO.wireId) 110f else 60f
+            val visualTroop = MatchGameTroop(
+                id = preview.id,
+                ownerPlayerNumber = preview.ownerPlayerNumber,
+                card = preview.card,
+                point = point,
+                health = health,
+                maxHealth = health,
+                pathDistance = preview.pathDistance
+            )
+            val ownerColor = if (preview.ownerPlayerNumber == 1) Color(0xFF4E9BFF) else Color(0xFFFF6759)
+            drawCircle(Color(0x8E101820), boardWidth * 0.056f, Offset(center.x, center.y + boardWidth * 0.032f))
+            drawCircle(ownerColor, boardWidth * 0.048f, center)
+            drawCircle(Color(0xFF1D2733), boardWidth * 0.048f, center, style = Stroke(width = 1.5.dp.toPx()))
+            val sprite = if (preview.card == MatchTroopCard.ESCUDERO.wireId) escuderoSprite else swordsmanSprite
+            drawTroopSprite(sprite, visualTroop, center, boardWidth * 0.105f)
         }
         gameState?.projectiles?.forEach { projectile ->
             val start = oriented(projectile.from)

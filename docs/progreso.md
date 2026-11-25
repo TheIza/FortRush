@@ -107,3 +107,16 @@ Estado: implementado en el árbol local de `main`; **todavía no desplegado en C
 - Copia recuperable previa a esta tarea verificada: `C:\Users\izarb\Documents\ChatGPT\FortRush\staging\fortrush-before-match-result-ui-2026-11-25.bundle`.
 - Comprobado antes del retoque final de legibilidad: `node --check` en los tres módulos del servidor, `wrangler deploy --dry-run` (empaquetado correcto, sin desplegar), `git diff --check` y `:app:compileDebugKotlin --offline` (`BUILD SUCCESSFUL`). Tras aumentar las barras de 6 a 9 dp, `git diff --check` volvió a pasar; el intento de recompilar el checkout real se detuvo antes de compilar por `AccessDeniedException` al archivo `.gradle/9.6.0/fileHashes.lock`. No es un error Kotlin. No se ejecutó la suite de tests ni una prueba con cuentas reales.
 - Pendiente: revisar transacciones con tests automatizados y credenciales simuladas; desplegar Worker; probar victoria por juego, victoria por rendición, empate, actualización del saldo del perfil, y comprobar la fluidez en dos dispositivos. El APK instalado no recibe el render interpolado hasta compilar e instalar esta versión Android.
+
+## 25/11/2026 — despliegue de tropas y margen de las barras
+
+### Diagnóstico y cambios
+- La prueba con bot no podía aceptar toques del camino porque `createDebugBotMap()` no rellenaba `pathCumulativeLengths` ni `pathTotalLength`, campos necesarios para convertir el toque en distancia sobre la ruta. El detector devolvía `null` antes de llamar al despliegue.
+- El modo bot ahora coloca y dibuja localmente el grupo visual de la carta, comprueba su zona y monedas y muestra que es una vista de prueba sin combate. No envía acciones al Worker ni altera su simulación. La partida online conserva el envío autoritativo `deploy_troop`.
+- Al tocar fuera del tramo verde con una tropa seleccionada, la arena explica dónde tocar. `ArenaLifeMeter` ahora aplica su `Modifier` recibido y deja 4 dp debajo del contenido.
+- El nombre «Rival de prueba» aún estaba en `origin/main` al empezar esta tarea. El `main` local ya contiene la lectura del apodo real, pero seguía sin empujarse. Se registrará el resultado del push y del despliegue en esta entrada cuando se compruebe.
+
+### Comprobaciones reales
+- Worker: `npm test`, 58/58 pasaron. Las pruebas incluyen despliegue autenticado, grupo completo, validación de posiciones, monedas y sincronización; la corrección también hace que el test de `/health` compare la versión con la constante activa.
+- Android: `:app:testDebugUnitTest` y `:app:assembleDebug` terminaron con `BUILD SUCCESSFUL`. La suite específica de destino de tropas tiene 5/5 pruebas, incluida la del mapa bot con longitud acumulada y toque válido.
+- `git diff --check`: correcto. No se ha probado aún el gesto manual en un emulador/dispositivo ni una partida entre dos cuentas; la APK se compila, pero requiere instalarse para verificar visualmente el cambio.
