@@ -171,3 +171,13 @@ Estado: implementado en el árbol local de `main`; **todavía no desplegado en C
 - Android: `:app:testDebugUnitTest` y `:app:assembleDebug --offline` terminaron con `BUILD SUCCESSFUL`.
 - `git diff --check`: correcto. No se ha ejecutado todavía una partida autenticada real de dos cuentas con el nuevo APK.
 - Pendiente después de desplegar: comprobar en una partida real que el muro se ve sin halo, que las tropas quedan detrás antes de romperlo y que el movimiento se percibe continuo.
+
+## 26/11/2026 — limpieza del panel inferior y diagnóstico de conexión
+
+- El panel inferior de la arena ya no muestra mensajes como «Torre de flechas seleccionada…». Conserva únicamente monedas, ingreso, las dos barras de vida y las cartas, como se pidió. La guía sigue disponible para accesibilidad y los controles no cambian.
+- El error de emparejamiento mostrado como `IOException` se revisó junto con la URL efectiva de `local.properties`, que apunta al Worker Cloudflare. Una comprobación externa del WebSocket abrió `wss://round-king-86b7.izarbelanuza06.workers.dev/ws` y recibió la respuesta esperada del servidor ante un token de prueba inválido; esto confirma que el endpoint está activo, sin usar credenciales reales.
+- Android ahora incluye el mensaje concreto de la excepción o de la respuesta HTTP en el reintento, para distinguir red local, cierre del socket y rechazo del servidor. No se incorporan credenciales ni se cambia la autoridad del servidor.
+
+### Comprobaciones reales
+- `:app:testDebugUnitTest` y `:app:assembleDebug --offline`: `BUILD SUCCESSFUL`.
+- No se afirma todavía una partida real de dos cuentas con esta APK. Si el error reaparece, el nuevo texto permitirá identificar el motivo exacto en el siguiente intento.

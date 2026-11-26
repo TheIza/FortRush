@@ -347,10 +347,6 @@ fun BattleArenaScreen(
         selectedTroopCard = null
     }
 
-    val rejectionText = buildError ?: localFeedback ?: selectedTowerCard?.let {
-        "${it.displayName} seleccionada · toca un hueco propio libre"
-    } ?: selectedTroopCard?.let { "${it.displayName} seleccionada · toca el camino en tu zona" }
-
     Box(
         Modifier
             .fillMaxSize()
@@ -471,7 +467,9 @@ fun BattleArenaScreen(
                 selectedTowerCard = selectedTowerCard,
                 selectedTroopCard = selectedTroopCard,
                 draggedTowerCard = draggedTowerCard,
-                message = rejectionText,
+                // Keep the lower panel focused on coins, life bars and cards.
+                // Selection guidance remains available through accessibility and touch feedback.
+                message = null,
                 onTowerCardTap = { card ->
                     selectedTowerCard = if (selectedTowerCard == card) null else card
                     selectedTroopCard = null

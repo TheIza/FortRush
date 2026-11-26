@@ -676,7 +676,10 @@ class MatchmakingRepository {
                     matchmakingConnection?.notifySocketClosed()
                     if (failureAlreadyReported) return
                     failureAlreadyReported = true
-                    val detail = response?.let { "HTTP ${it.code}" } ?: t.cause?.javaClass?.simpleName
+                    val detail = response?.let { "HTTP ${it.code}" }
+                        ?: t.message?.takeIf { it.isNotBlank() }
+                        ?: t.cause?.message?.takeIf { it.isNotBlank() }
+                        ?: t.cause?.javaClass?.simpleName
                         ?: t.javaClass.simpleName
                     onEvent(MatchmakingEvent.Failure("No se pudo abrir la conexión con el servidor ($detail). Reintenta."))
                 }

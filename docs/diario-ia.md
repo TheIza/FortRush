@@ -221,3 +221,10 @@ Responder a la revisión visual de la arena: muralla continua de borde a borde, 
 - Revisión: `simulateNormalStep` solo comprobaba la llegada al extremo para infligir daño, pero no limitaba la posición. `drawContinuousWall` pintaba además un rectángulo gris detrás del PNG transparente. El movimiento Android se detenía en 1.0 al terminar cada interpolación de 250 ms.
 - Cambios: límite autoritativo detrás del muro, sin cambio de balance; eliminación del fondo opaco y aumento del tramo con proporción del asset; extrapolación visual máxima de 25 % entre snapshots, sin tráfico adicional.
 - Pruebas: Worker 59/59 y Android unit tests/build correctos. La prueba de combate confirma que la posición no pasa el muro y que se siguen aplicando los golpes. Falta probar manualmente una partida autenticada real después del despliegue.
+
+# 26/11/2026 — panel inferior y fallo de apertura WebSocket
+
+- Petición: ocultar los mensajes de selección encima de las cartas y revisar el error de emparejamiento `IOException`.
+- Cambio Android: `ArenaCardHand` recibe `message = null`, dejando el espacio inferior para monedas, barras y cartas. El callback de WebSocket conserva ahora el mensaje de la excepción o el código HTTP en lugar de reducirlo siempre a la palabra `IOException`.
+- Comprobación de infraestructura: el endpoint público respondió al handshake WebSocket desde Node y devolvió `AUTH_INVALID` con un token deliberadamente falso; eso valida transporte y ruta, no una sesión Firebase real. La URL de compilación local sigue siendo el Worker Cloudflare.
+- `:app:testDebugUnitTest` y `:app:assembleDebug --offline` terminaron correctamente. Falta repetir el flujo con dos cuentas y la APK nueva para capturar el diagnóstico real si vuelve a fallar.
