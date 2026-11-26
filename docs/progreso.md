@@ -159,3 +159,15 @@ Estado: implementado en el árbol local de `main`; **todavía no desplegado en C
 - No se cambiaron planes, facturación, bindings ni migraciones. La corrección del servidor también beneficia a APK anteriores; la APK nueva incluye la protección adicional de Android.
 - Backup previo verificado: `C:/Users/izarb/Documents/ChatGPT/FortRush/staging/backups/fortrush-before-snapshot-sequence-2026-11-26.bundle`, con el historial hasta `29e8881`. Versión pública anterior: `eea07df0-6c15-4106-9aa3-2ee37ac3c487` (`profile-rewards-2026-11-25.1`), disponible para revertir código con Wrangler. Revertir código no revierte datos de partidas o perfiles.
 - Siguiente comprobación pendiente: iniciar una partida online nueva con dos cuentas reales y desplegar ambas cartas. Las comprobaciones realizadas cubren lógica del Worker, almacenamiento simulado, dibujo real en emulador y versión pública; no se ha jugado una partida autenticada completa en dos dispositivos durante esta tarea.
+
+## 26/11/2026 — muro bloquea tropas y retoque visual de la arena
+
+- La simulación dejaba avanzar a una tropa hasta el extremo del camino aunque el muro defensor siguiera con vida. Ahora el servidor fija su posición justo detrás del muro y la tropa continúa atacándolo desde allí. Cuando el muro llega a cero, la regla existente permite que avance hacia el castillo. No se cambiaron daño, vida, tiempos ni economía.
+- La causa del halo gris era el `drawRect` de fondo de `drawContinuousWall`, no la puerta. Se eliminó ese rectángulo y el tramo PNG transparente de piedra pasó a dibujarse con su proporción real y mayor altura. La puerta mantiene su tamaño y sus dos estados.
+- Para suavizar los tirones se añadió una extrapolación visual limitada al 25 % del último intervalo entre instantáneas. Solo afecta al Canvas Android; el servidor sigue siendo autoritativo y no recibe más mensajes.
+
+### Comprobaciones reales
+- Worker: `npm test`, **59/59** pasaron, incluida la prueba de que una tropa permanece detrás del muro entre golpes.
+- Android: `:app:testDebugUnitTest` y `:app:assembleDebug --offline` terminaron con `BUILD SUCCESSFUL`.
+- `git diff --check`: correcto. No se ha ejecutado todavía una partida autenticada real de dos cuentas con el nuevo APK.
+- Pendiente después de desplegar: comprobar en una partida real que el muro se ve sin halo, que las tropas quedan detrás antes de romperlo y que el movimiento se percibe continuo.

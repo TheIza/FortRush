@@ -264,7 +264,18 @@ function simulateNormalStep(match, elapsedMs, deltaMs) {
     if (enemy && Math.abs(enemy.position - troop.position) <= contact) continue;
     const direction = troop.ownerPlayerNumber === 1 ? 1 : -1;
     const speed = totalLength / troop.pathTravelMs;
-    troop.position = clamp(troop.position + direction * speed * deltaMs, 0, totalLength);
+    const defender = playerByNumber(match, troop.ownerPlayerNumber === 1 ? 2 : 1);
+    const wallStop = troop.ownerPlayerNumber === 1 ? totalLength - contact : contact;
+    const nextPosition = troop.position + direction * speed * deltaMs;
+    // An intact wall is a physical stop: troops remain immediately behind it
+    // until its health reaches zero.
+    if (defender?.wallHealth > 0) {
+      troop.position = troop.ownerPlayerNumber === 1
+        ? Math.min(nextPosition, wallStop)
+        : Math.max(nextPosition, wallStop);
+    } else {
+      troop.position = clamp(nextPosition, 0, totalLength);
+    }
   }
 
   const livingAtStart = match.troops.filter((troop) => troop.health > 0);
@@ -281,10 +292,13 @@ function simulateNormalStep(match, elapsedMs, deltaMs) {
       troopDamage.push({ targetId: enemy.id, damage: troop.attackDamage, source: "sword" });
       continue;
     }
-    const reachedGate = troop.ownerPlayerNumber === 1 ? troop.position >= totalLength - 0.001 : troop.position <= 0.001;
+    const defender = playerByNumber(match, troop.ownerPlayerNumber === 1 ? 2 : 1);
+    const wallStop = troop.ownerPlayerNumber === 1 ? totalLength - contact : contact;
+    const reachedGate = defender?.wallHealth > 0
+      ? (troop.ownerPlayerNumber === 1 ? troop.position >= wallStop - 0.001 : troop.position <= wallStop + 0.001)
+      : (troop.ownerPlayerNumber === 1 ? troop.position >= totalLength - 0.001 : troop.position <= 0.001);
     if (!reachedGate) continue;
     troop.nextAttackAtElapsedMs = elapsedMs + troop.attackIntervalMs;
-    const defender = playerByNumber(match, troop.ownerPlayerNumber === 1 ? 2 : 1);
     if (defender.wallHealth > 0) wallDamage.set(defender.playerNumber, (wallDamage.get(defender.playerNumber) ?? 0) + troop.attackDamage);
     else {
       castleDamage.set(defender.playerNumber, (castleDamage.get(defender.playerNumber) ?? 0) + troop.attackDamage);

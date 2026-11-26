@@ -1420,7 +1420,7 @@ private fun ArenaMapCanvas(
         drawContinuousWall(
             centerY = oriented(map.player1WallGate).y,
             canvasWidth = size.width,
-            wallHeight = boardWidth * 0.09f,
+            wallHeight = boardWidth * 0.115f,
             gateWidth = boardWidth * 0.19f,
             roadOpeningWidth = boardWidth * 0.15f,
             segment = wallSegment,
@@ -1430,7 +1430,7 @@ private fun ArenaMapCanvas(
         drawContinuousWall(
             centerY = oriented(map.player2WallGate).y,
             canvasWidth = size.width,
-            wallHeight = boardWidth * 0.09f,
+            wallHeight = boardWidth * 0.115f,
             gateWidth = boardWidth * 0.19f,
             roadOpeningWidth = boardWidth * 0.15f,
             segment = wallSegment,
@@ -1468,7 +1468,9 @@ private fun ArenaMapCanvas(
         val elapsedSinceSnapshot = (SystemClock.elapsedRealtime() - latestSnapshotAtMs).coerceIn(0L, 1_000L).toFloat()
         val transitionMs = (latestSnapshotAtMs - previousSnapshotAtMs).toFloat().coerceIn(50f, 1_000f)
         val fraction = if (previousGameState == null || previousSnapshotAtMs == 0L) 1f
-            else (elapsedSinceSnapshot / transitionMs).coerceIn(0f, 1f)
+            // Continue the last short segment locally between server snapshots.
+            // This removes visible stop-and-go without changing authoritative movement.
+            else (elapsedSinceSnapshot / transitionMs).coerceIn(0f, 1.25f)
 
         gameState?.troops?.forEach { troop ->
             val prior = previousGameState?.troops?.firstOrNull { it.id == troop.id }
@@ -1580,14 +1582,9 @@ private fun DrawScope.drawContinuousWall(
     val openingLeft = centerX - roadOpeningWidth / 2f
     val openingRight = centerX + roadOpeningWidth / 2f
 
-    // The same stone strip runs edge to edge; only the destroyed gate leaves a road opening.
-    drawRect(
-        color = Color(0xFF827363),
-        topLeft = Offset(0f, centerY - wallHeight / 2f),
-        size = Size(canvasWidth, wallHeight)
-    )
-
-    val tileWidth = wallHeight * 2f
+    // The transparent PNG is the only wall surface. Do not paint a rectangular
+    // backdrop behind it: that was the gray halo visible around the masonry.
+    val tileWidth = wallHeight * painterAspect(segment)
     val overlap = 2.dp.toPx()
     fun tileSpan(start: Float, end: Float) {
         var x = start

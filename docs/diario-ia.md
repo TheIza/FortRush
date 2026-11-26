@@ -214,3 +214,10 @@ Responder a la revisión visual de la arena: muralla continua de borde a borde, 
 - Publicación: Worker existente, versión `ca23226b-424c-485f-a340-6939ffddd087`; GET público `/health` devuelve `snapshot-sequence-2026-11-26.1` y `status: ok`. La versión anterior y el bundle recuperable están registrados en `docs/progreso.md`; planes y configuración de servicios sin cambios.
 - Evidencia guardada fuera de Git en `C:/Users/izarb/Documents/ChatGPT/FortRush/staging/troop-render-2026-11-26/`. Próxima validación: dos usuarios reales despliegan Espadachín y Escudero en una partida online nueva. No se afirma haber ejecutado esa partida durante esta tarea.
 - Aprendizaje personal de la usuaria: pendiente de que lo redacte o confirme; no se atribuye una conclusión de la IA como aprendizaje suyo.
+
+# 26/11/2026 — bloqueo físico del muro y fluidez visual
+
+- Petición: impedir que las tropas atraviesen un muro intacto, ampliar el tramo de piedra sin ampliar la puerta, corregir el fondo gris y reducir los tirones sin aumentar mensajes del servidor.
+- Revisión: `simulateNormalStep` solo comprobaba la llegada al extremo para infligir daño, pero no limitaba la posición. `drawContinuousWall` pintaba además un rectángulo gris detrás del PNG transparente. El movimiento Android se detenía en 1.0 al terminar cada interpolación de 250 ms.
+- Cambios: límite autoritativo detrás del muro, sin cambio de balance; eliminación del fondo opaco y aumento del tramo con proporción del asset; extrapolación visual máxima de 25 % entre snapshots, sin tráfico adicional.
+- Pruebas: Worker 59/59 y Android unit tests/build correctos. La prueba de combate confirma que la posición no pasa el muro y que se siguen aplicando los golpes. Falta probar manualmente una partida autenticada real después del despliegue.

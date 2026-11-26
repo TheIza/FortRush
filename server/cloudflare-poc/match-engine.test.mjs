@@ -55,10 +55,12 @@ test("a group crosses the full path in the configured travel time and hits the w
   const start = match.startedAtServerMs;
   assert.equal(deployTroops(match, 1, "espadachin", 0, "deploy-at-start", start).ok, true);
   advanceCombat(match, start + 25_000);
-  assert.ok(match.troops.every((troop) => troop.position === match.map.path.totalLength));
+  assert.ok(match.troops.every((troop) => troop.position < match.map.path.totalLength));
   assert.equal(match.players[1].wallHealth, 470);
+  const positionBehindWall = match.troops[0].position;
   advanceCombat(match, start + 26_000);
   assert.equal(match.players[1].wallHealth, 440);
+  assert.equal(match.troops[0].position, positionBehindWall);
 });
 
 test("troop attacks apply simultaneously and can kill both units", () => {
