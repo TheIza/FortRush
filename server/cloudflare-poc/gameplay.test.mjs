@@ -30,31 +30,33 @@ function makeGameplayHarness({ startedAgoMs = 0 } = {}) {
       serializeAttachment: (value) => { attachment = value; }
     };
   });
-  const storage = new Map([["match", match]]);
+  // Durable Object storage serializes values: mutating a read value is not a write.
+  const storage = new Map([["match", structuredClone(match)]]);
   const context = {
     storage: {
-      get: async (key) => storage.get(key),
-      put: async (key, value) => { storage.set(key, value); },
+      get: async (key) => structuredClone(storage.get(key)),
+      put: async (key, value) => { storage.set(key, structuredClone(value)); },
       setAlarm: async () => {},
       deleteAlarm: async () => {}
     },
     getWebSockets: () => sockets
   };
-  return { match, messages, sockets, storage, probe: new WebSocketProbe(context, {}) };
+  return { get match() { return structuredClone(storage.get("match")); }, messages, sockets, storage, context, probe: new WebSocketProbe(context, {}) };
 }
 
 test("deploy_troop uses the authenticated socket identity, charges once, and synchronizes both clients", async () => {
   const harness = makeGameplayHarness();
-  const { match, messages, probe, sockets } = harness;
+  const { messages, probe, sockets } = harness;
 
   await probe.webSocketMessage(sockets[0], JSON.stringify({
     type: "deploy_troop",
     card: "espadachin",
-    position: match.map.path.totalLength * 0.2,
+    position: harness.match.map.path.totalLength * 0.2,
     playerNumber: 2,
     actionId: "deploy-action-1"
   }));
 
+  const match = harness.match;
   assert.equal(match.troops.length, 3);
   assert.ok(match.troops.every((troop) => troop.ownerPlayerNumber === 1));
   assert.equal(match.players[0].coinsSpent, 45);
@@ -126,4 +128,26 @@ test("a simulation alarm advances both clients from the server clock", async () 
     assert.equal(state.state.sequence, 1);
   }
   assert.equal(harness.match.players[0].coinsAtLastUpdate, 150);
+});
+
+test("snapshot sequence survives storage reloads and advances for spawning and movement", async (t) => {
+  let nowMs = 1_800_000_000_000;
+  t.mock.method(Date, "now", () => nowMs);
+  const harness = makeGameplayHarness();
+  await harness.probe.alarm();
+  await harness.probe.webSocketMessage(harness.sockets[0], JSON.stringify({
+    type: "deploy_troop", card: "espadachin",
+    position: harness.match.map.path.totalLength * 0.2, actionId: "visible-group"
+  }));
+  nowMs += 250;
+  // A fresh instance must continue from the persisted counter, not a JS reference.
+  await new WebSocketProbe(harness.context, {}).alarm();
+
+  for (const uid of ["uid-one", "uid-two"]) {
+    const states = harness.messages.get(uid).filter(message => message.type === "match.state").map(message => message.state);
+    assert.deepEqual(states.map(state => state.sequence), [1, 2, 3]);
+    assert.deepEqual(states.map(state => state.troops.length), [0, 3, 3]);
+    assert.ok(states[2].troops[0].pathDistance > states[1].troops[0].pathDistance);
+  }
+  assert.equal(harness.match.game.nextSnapshotSequence, 3);
 });

@@ -20,7 +20,7 @@ import {
 const FIREBASE_JWKS = createRemoteJWKSet(
   new URL("https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com")
 );
-export const MATCHMAKING_VERSION = "profile-rewards-2026-11-25.1";
+export const MATCHMAKING_VERSION = "snapshot-sequence-2026-11-26.1";
 const MATCH_STATE_INTERVAL_MS = 250;
 const PENDING_MATCH_REWARDS_KEY = "pendingMatchRewards";
 
@@ -134,9 +134,12 @@ function rejectBuild(socket, actionId, slotId, reason) {
   send(socket, "action_rejected", { actionId, slotId, reason });
 }
 
-function publishGameState(ctx, match, nowMs = Date.now()) {
+async function publishGameState(ctx, match, nowMs = Date.now()) {
   if (!match?.game) return;
   match.game.nextSnapshotSequence += 1;
+  // Storage holds a serialized copy. Persist the increment before sending it so
+  // the next alarm/action cannot reuse a sequence already rendered by Android.
+  await ctx.storage.put("match", match);
   const socketsByUid = new Map(ctx.getWebSockets().map((socket) => [socket.deserializeAttachment()?.uid, socket]));
   for (const player of match.players) {
     const socket = socketsByUid.get(player.uid);
@@ -280,7 +283,7 @@ export class WebSocketProbe {
     const activeMatch = await this.ctx.storage.get("match");
     if (activeMatch?.phase === "FINISHED" && activeMatch.game?.result) {
       await this.settleFinishedMatch(activeMatch);
-      publishGameState(this.ctx, activeMatch);
+      await publishGameState(this.ctx, activeMatch);
       await this.clearAlarmPreservingPendingRewards();
       for (const socket of this.ctx.getWebSockets()) {
         const attachment = socket.deserializeAttachment() ?? {};
@@ -432,7 +435,7 @@ export class WebSocketProbe {
 
   async publishMatchState(match, nowMs = Date.now()) {
     if (match.phase === "FINISHED" && match.game?.result) await this.settleFinishedMatch(match);
-    publishGameState(this.ctx, match, nowMs);
+    await publishGameState(this.ctx, match, nowMs);
     if (match.phase !== "FINISHED") return;
     await this.clearAlarmPreservingPendingRewards();
     for (const socket of this.ctx.getWebSockets()) {
@@ -551,7 +554,6 @@ export class WebSocketProbe {
     }
     if (["IN_MATCH", "SUDDEN_DEATH"].includes(match.phase)) {
       advanceCombat(match, Date.now());
-      await this.ctx.storage.put("match", match);
       await this.publishMatchState(match);
       if (match.phase !== "FINISHED") await this.scheduleAlarmAt(Date.now() + MATCH_STATE_INTERVAL_MS);
       return;

@@ -135,3 +135,27 @@ Estado: implementado en el árbol local de `main`; **todavía no desplegado en C
 - Cambio local: Android entrega la conexión al estado de la app al autenticarse; el reintento espera hasta 3 segundos a que el WebSocket cierre antes de abrir uno nuevo. Si no logra cerrarlo, lo explica en pantalla. El error `ALREADY_CONNECTED` ahora indica que hay que cerrar FortRush en el otro dispositivo y que cada jugador necesita su propia cuenta.
 - Backup: `staging/backups/fortrush-before-socket-retry-fix-2026-11-25.bundle`, verificado con `git bundle verify`.
 - Comprobación: `:app:assembleDebug --offline` terminó con `BUILD SUCCESSFUL`. No se ejecutaron tests automáticos, no se cambió el Worker ni se ha probado con dos cuentas/dispositivos. La APK nueva debe probarse para confirmar el reintento.
+
+## 26/11/2026 — causa reproducida de las tropas invisibles
+
+### Causa y corrección
+- Se comparó la primera arena jugable (`63ebc9c`) con la interpolación añadida en `e8a970f`. El Worker incrementaba `nextSnapshotSequence` después de guardar la partida, sin persistir el nuevo contador. Al leer de nuevo el almacenamiento, volvía a enviar `sequence: 1` aunque hubiera cambiado la lista de tropas. Android actualizaba el Canvas solo cuando cambiaba ese número; las barras leían el estado recibido directamente. Esto explica que hubiera daño y cambios de vida sin tropas visibles.
+- Reproducción anterior al arreglo: instantáneas con secuencias `[1, 1, 1]`, cantidades de tropas `[0, 3, 3]` y contador guardado `0`. El test nuevo falló con esos valores. La prueba del Canvas anterior también falló desde ambas perspectivas porque no aparecía el espadachín. La modificación anterior de coordenadas y prioridad de dibujo no corregía esta causa.
+- `server/cloudflare-poc/src/index.mjs`: guardar el contador junto al estado antes de emitir `match.state`, esperando la escritura. La alarma conserva una sola escritura de partida por actualización; no aumenta su frecuencia. No se modificó `match-engine.mjs`, el balance, los mapas ni los recursos gráficos.
+- `app/src/main/java/org/TheIza/fortrush/ui/Screen/BattleArenaScreen.kt`: refrescar la interpolación al cambiar el contenido recibido, incluso si un servidor anterior repite el número; mantener la interpolación y la autoridad del servidor. Etiqueta del Canvas para comprobar sus píxeles.
+- `server/cloudflare-poc/gameplay.test.mjs`: el almacenamiento simulado ahora copia valores como el almacenamiento real, en lugar de conservar referencias que ocultaban el fallo. Añadida comprobación del contador después de leer almacenamiento y recrear el objeto.
+- `app/src/androidTest/java/org/TheIza/fortrush/ui/BattleTroopVisibilityTest.kt`: comprobar aparición, movimiento y retirada de Espadachín y Escudero en el Canvas online, desde los dos jugadores, incluso con números de instantánea repetidos. Usa estados controlados y un mapa de prueba; no equivale a una partida real con Firebase.
+- `docs/protocolo.md`: documentado el contador persistente y la compatibilidad del cliente.
+
+### Comprobaciones reales
+- Worker: `npm test`, **59/59**. La regresión ahora recibe `[1, 2, 3]` en ambos clientes, conserva las tres tropas y comprueba su avance y el contador persistido.
+- Android: APK debug y APK de instrumentación generadas; **21 pruebas unitarias sin fallos**, comprobadas en los XML de `testDebugUnitTest`.
+- Emulador `Medium_Phone_API_37.0`: ambas pruebas visuales pasaron, verificando píxeles al crear, mover y retirar tropas. La vista del segundo jugador pasó en la primera ejecución corregida; la del primero se completó después en una ejecución individual. Se produjeron un timeout de captura y un bloqueo al iniciar el proceso de instrumentación entre intentos; no se cuentan como ejecuciones exitosas.
+- Capturas de aparición y movimiento inspeccionadas visualmente: sprites de ambas cartas visibles. Evidencia local (XML anterior y ocho PNG posteriores): `C:/Users/izarb/Documents/ChatGPT/FortRush/staging/troop-render-2026-11-26/`.
+- `git diff --check`: correcto antes de publicar.
+
+### Publicación, recuperación y siguiente prueba
+- Publicado con Wrangler 4.164.0 en el Worker existente. Versión: `ca23226b-424c-485f-a340-6939ffddd087`. `/health` confirmó `status: ok`, `matchmakingVersion: snapshot-sequence-2026-11-26.1`, `profileApiConfigured: true` y el mismo balance `fort-rush-2026-11-24.1`.
+- No se cambiaron planes, facturación, bindings ni migraciones. La corrección del servidor también beneficia a APK anteriores; la APK nueva incluye la protección adicional de Android.
+- Backup previo verificado: `C:/Users/izarb/Documents/ChatGPT/FortRush/staging/backups/fortrush-before-snapshot-sequence-2026-11-26.bundle`, con el historial hasta `29e8881`. Versión pública anterior: `eea07df0-6c15-4106-9aa3-2ee37ac3c487` (`profile-rewards-2026-11-25.1`), disponible para revertir código con Wrangler. Revertir código no revierte datos de partidas o perfiles.
+- Siguiente comprobación pendiente: iniciar una partida online nueva con dos cuentas reales y desplegar ambas cartas. Las comprobaciones realizadas cubren lógica del Worker, almacenamiento simulado, dibujo real en emulador y versión pública; no se ha jugado una partida autenticada completa en dos dispositivos durante esta tarea.

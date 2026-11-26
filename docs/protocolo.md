@@ -76,6 +76,8 @@ Cuando hay un resultado, el servidor guarda en una transacción las dos estadís
 
 `match.state` envía la instantánea autoritativa a ambos jugadores cada 250 ms durante el combate y también después de acciones aceptadas o rechazadas. Incluye `sequence`, fase, tiempo, vida de muros/castillos, tropas, torres, proyectiles y resultado. Cada tropa incluye `pathDistance`, su distancia autoritativa a lo largo del camino. Android interpola visualmente entre dos instantáneas sobre la geometría recibida; no decide movimiento, daño ni resultado.
 
+`sequence` crece con cada `match.state` de la misma partida y se guarda en el Durable Object **antes de emitir el mensaje**. Los dos destinatarios reciben el mismo número. El contador debe sobrevivir a lecturas de almacenamiento y a la recreación del objeto; cambiar solo el objeto JavaScript después de `storage.put` no lo persiste. Android conserva el rechazo de estados anteriores y refresca el dibujo si cambia el contenido de un estado aceptado, aunque repita número, para tolerar servidores de la versión anterior.
+
 Las fases principales son `IN_MATCH`, `SUDDEN_DEATH` y `FINISHED`. `remainingMs` llega a cero al comenzar la muerte súbita. `result` es `null` durante el juego y, al finalizar, incluye el ganador o `null` en caso de empate, motivo técnico, tiempo y vidas finales.
 
 ## Versión de balance

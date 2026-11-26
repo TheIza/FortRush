@@ -61,6 +61,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -192,16 +193,17 @@ fun BattleArenaScreen(
             economyTick += 1L
         }
     }
-    LaunchedEffect(gameState?.sequence) {
+    LaunchedEffect(map.seed, gameState) {
         gameClockTick = 0L
         while (gameState != null && gameState.phase != "FINISHED") {
             delay(250)
             gameClockTick += 1L
         }
     }
-    LaunchedEffect(gameState?.sequence) {
+    // Refresh from the received content as well: legacy servers repeated sequence
+    // while troops and health changed, leaving the Canvas on the initial empty state.
+    LaunchedEffect(map.seed, gameState) {
         val snapshot = gameState ?: return@LaunchedEffect
-        if (snapshot.sequence == latestGameState?.sequence) return@LaunchedEffect
         previousGameState = latestGameState
         previousSnapshotAtMs = latestSnapshotAtMs
         latestGameState = snapshot
@@ -1453,7 +1455,7 @@ private fun ArenaMapCanvas(
 
     }
 
-    Canvas(Modifier.fillMaxSize().zIndex(1f)) {
+    Canvas(Modifier.fillMaxSize().zIndex(1f).testTag("arenaEntities")) {
         animationFrame.value
         val boardWidth = minOf(size.width, size.height * 9f / 16f)
         val boardLeft = (size.width - boardWidth) / 2f
